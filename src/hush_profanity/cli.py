@@ -54,34 +54,43 @@ def _cmd_clean(args, settings: Settings) -> int:
         log.error("No scope. Pass --scope PATH or set [library].roots in settings.toml.")
         return 2
 
-    if args.include_all_srt:
-        mode = "include-all-srt"
-    elif args.include_cleaned_srt:
-        mode = "include-cleaned-srt"
-    else:
-        mode = "basic"
-
     log.info("Scope: %s", [str(r) for r in roots])
-    log.info("Mode: %s   Apply: %s", mode, args.apply)
+    log.info("Apply: %s", args.apply)
 
-    actions = clean_mod.find_actions(roots, settings.library.extensions, mode)
-    summary = clean_mod.summarize(actions)
-    if not actions:
-        log.info("Nothing to delete. Library is already clean for this mode.")
+    plan = clean_mod.plan(roots)
+    n_total = plan.total_files_touched()
+    if n_total == 0:
+        log.info("Nothing to do. No .srt or .edl files found under scope.")
         return 0
 
-    log.info("Found %d sidecar file(s) to %s:",
-             len(actions), "delete" if args.apply else "delete (DRY RUN — pass --apply to commit)")
-    for reason, (n, b) in sorted(summary.items()):
-        log.info("  %-12s  %5d files, %s bytes", reason, n, f"{b:,}")
+    verb = "delete" if args.apply else "delete (DRY RUN — pass --apply to commit)"
+    log.info("Plan:")
+    log.info("  .srt files to %s:                %d", verb, len(plan.srt_deleted))
+    log.info("  .edl files to %s (no skips):    %d", verb, len(plan.edl_deleted))
+    log.info("  .edl files to %s (have skips):  %d",
+             "rename to .edl.preserved" if args.apply else "rename (DRY RUN)",
+             len(plan.edl_preserved))
 
-    n_ok, n_fail, total_bytes = clean_mod.execute(actions, apply=args.apply)
+    clean_mod.execute(plan, apply=args.apply)
+    log_path = clean_mod.write_preserved_log(plan, settings.paths.log_dir,
+                                             apply=args.apply, scope_roots=roots)
+    if log_path:
+        log.info("Preserved-EDL details: %s", log_path)
+
+    if plan.failures:
+        log.error("%d failure(s):", len(plan.failures))
+        for p, err in plan.failures:
+            log.error("  %s — %s", p, err)
+        return 1
     if args.apply:
-        log.info("Deleted %d files (%s bytes); %d failures.", n_ok, f"{total_bytes:,}", n_fail)
+        log.info("Done. Deleted %d, renamed %d, freed ~%s bytes.",
+                 len(plan.srt_deleted) + len(plan.edl_deleted),
+                 len(plan.edl_preserved),
+                 f"{plan.total_bytes_freed():,}")
     else:
-        log.info("Dry run complete. Re-run with --apply to delete %d files (%s bytes).",
-                 n_ok, f"{total_bytes:,}")
-    return 0 if n_fail == 0 else 1
+        log.info("Dry run complete. Re-run with --apply to commit (%d files would be touched).",
+                 n_total)
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -97,24 +106,25 @@ def main(argv: list[str] | None = None) -> int:
 
     p_clean = sub.add_parser(
         "clean",
-        help="Delete leftover .edl / .srt sidecars from previous runs (dry-run by default).",
+        help="Delete leftover .srt / .edl sidecars from previous runs (dry-run by default).",
         description=(
-            "Walks the configured library roots and deletes leftover sidecar files. "
-            "Dry-run unless --apply is passed. By default only deletes <base>.edl and "
-            "<base>-words.srt — never touches plain <base>.srt unless you opt in."
+            "Walks the configured library roots recursively and:\n"
+            "  - deletes every .srt file (no exceptions),\n"
+            "  - deletes any .edl file that contains no skip-worthy entries,\n"
+            "  - renames .edl files that DO contain manual skip work to "
+            "<base>.edl.preserved so they stay in their directory but won't "
+            "be loaded by Kodi or merged into a fresh scan,\n"
+            "  - writes a human-readable log of every preserved EDL to "
+            "logs/hush-clean-preserved-*.txt.\n\n"
+            "Dry-run unless --apply is passed."
         ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p_clean.add_argument("--scope", action="append", default=[],
                          help="Override the scope (folder to clean). May be passed multiple times. "
                               "If omitted, uses [library].roots from settings.toml.")
-    p_clean.add_argument("--include-cleaned-srt", action="store_true",
-                         help="Also delete <base>.srt IF a <base>.<lang>.srt sibling exists "
-                              "(i.e., the official sub is preserved separately).")
-    p_clean.add_argument("--include-all-srt", action="store_true",
-                         help="Also delete every <base>.srt regardless. RISKY: would delete "
-                              "official subs that are named <base>.srt without a language code.")
     p_clean.add_argument("--apply", action="store_true",
-                         help="Actually delete the files. Without this flag, dry-run only.")
+                         help="Actually delete and rename. Without this flag, dry-run only.")
 
     args = parser.parse_args(argv)
     settings = Settings.load(args.config)

@@ -9,20 +9,23 @@ if not exist ".venv\Scripts\python.exe" (
 echo.
 echo === hush-profanity sidecar cleanup ===
 echo.
-echo By default, runs as a DRY RUN — lists what would be deleted but does not
-echo touch any files. Add --apply to actually delete.
+echo Walks every folder configured in settings.toml [library].roots and:
+echo   - deletes every .srt file
+echo   - deletes any .edl file that contains no manual skip work
+echo   - renames .edl files with manual skip work to ^<base^>.edl.preserved
+echo     ^(so your work stays in the directory but doesn't conflict with the
+echo     next scan^)
+echo   - writes a log of preserved EDLs to logs\hush-clean-preserved-*.txt
+echo     so you can re-integrate them later
 echo.
-echo Defaults: deletes only ".edl" and "-words.srt" files. Pass
-echo   --include-cleaned-srt   to also delete cleaned <base>.srt when an official
-echo                           subtitle (.en.srt / .eng.srt) sibling exists
-echo   --include-all-srt       to delete every <base>.srt (DANGEROUS — could
-echo                           remove official subs without language tags)
+echo Defaults to a DRY RUN ^(lists actions but touches nothing^).
+echo Add --apply to actually delete and rename.
 echo.
 echo Examples:
-echo   windows\clean.bat                              ^(dry run, .edl + -words.srt^)
-echo   windows\clean.bat --apply                      ^(commit the above^)
-echo   windows\clean.bat --include-cleaned-srt        ^(dry run, broader^)
-echo   windows\clean.bat --include-cleaned-srt --apply
+echo   windows\clean.bat                         ^(dry run, configured scope^)
+echo   windows\clean.bat --apply                 ^(commit^)
+echo   windows\clean.bat --scope "Y:\Movies"     ^(dry run on a specific folder^)
+echo   windows\clean.bat --scope "Y:\Series" --apply
 echo.
 ".venv\Scripts\python.exe" -m hush_profanity clean %*
 set RC=%ERRORLEVEL%
