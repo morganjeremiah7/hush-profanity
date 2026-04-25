@@ -23,18 +23,20 @@ log = logging.getLogger(__name__)
 
 
 def _ensure_cuda_dlls_on_path() -> None:
-    """Add nvidia-* DLL bin directories to the Windows DLL loader path.
+    """Make the bundled nvidia-* DLLs discoverable by ctranslate2 on Windows.
 
-    PyTorch bundles its own cuDNN inside torch\\lib and uses ctypes to load it
-    directly, so torch works even when the loader can't see those DLLs. ctranslate2
-    (used by faster-whisper) just calls LoadLibrary and relies on the OS — so it
-    needs the DLLs on the path. We install them via `nvidia-cublas-cu12` and
-    `nvidia-cudnn-cu12` pip packages, which land them under
-    .venv\\Lib\\site-packages\\nvidia\\<pkg>\\bin. This makes them findable.
+    PyTorch bundles its own cuDNN inside torch\\lib and ctypes-loads it directly,
+    so torch is fine. ctranslate2 (the faster-whisper backend) calls plain
+    LoadLibrary and relies on the OS DLL search order. We install the right DLLs
+    via `nvidia-cublas-cu12` + `nvidia-cudnn-cu12` (8.9.7.29) — they land in
+    .venv\\Lib\\site-packages\\nvidia\\<pkg>\\bin. To be findable by both
+    AddDllDirectory-aware loaders AND legacy LoadLibrary, we do both:
+      1. os.add_dll_directory(d)          — for LOAD_LIBRARY_SEARCH_USER_DIRS
+      2. prepend d to os.environ['PATH']  — for legacy LoadLibrary (ctranslate2)
     """
     if sys.platform != "win32":
         return
-    candidates: list[Path] = []
+    candidates: list[str] = []
     for sp in site.getsitepackages() + [site.getusersitepackages()]:
         nvidia_root = Path(sp) / "nvidia"
         if not nvidia_root.is_dir():
@@ -42,12 +44,17 @@ def _ensure_cuda_dlls_on_path() -> None:
         for sub in nvidia_root.iterdir():
             bin_dir = sub / "bin"
             if bin_dir.is_dir():
-                candidates.append(bin_dir)
+                candidates.append(str(bin_dir))
+    if not candidates:
+        return
     for d in candidates:
         try:
-            os.add_dll_directory(str(d))
+            os.add_dll_directory(d)
         except (OSError, FileNotFoundError):
             pass
+    existing = os.environ.get("PATH", "")
+    new_path = os.pathsep.join(candidates + [existing]) if existing else os.pathsep.join(candidates)
+    os.environ["PATH"] = new_path
 
 
 _ensure_cuda_dlls_on_path()
