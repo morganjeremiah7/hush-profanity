@@ -92,6 +92,14 @@ Write-Step "Installing PyTorch ($Cuda)"
 & $VenvPip install --index-url "https://download.pytorch.org/whl/$Cuda" torch torchaudio
 if ($LASTEXITCODE -ne 0) { throw "torch install failed" }
 
+# ---- cuDNN 8 + cuBLAS for ctranslate2 (faster-whisper backend) --------------
+# PyTorch bundles its own cuDNN inside torch\lib but ctranslate2 can't find them.
+# ctranslate2 4.4.x specifically needs cuDNN 8 (not 9) — the DLL it looks for is
+# cudnn_ops_infer64_8.dll. ~1.3 GB total but unavoidable.
+Write-Step "Installing cuDNN 8 + cuBLAS for ctranslate2 (~1.3 GB)"
+& $VenvPip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==8.9.7.29"
+if ($LASTEXITCODE -ne 0) { throw "cuDNN/cuBLAS install failed" }
+
 # ---- Project deps ------------------------------------------------------------
 Write-Step "Installing project dependencies"
 & $VenvPip install -e .

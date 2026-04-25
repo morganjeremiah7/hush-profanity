@@ -11,12 +11,46 @@ from __future__ import annotations
 
 import gc
 import logging
+import os
+import site
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
 from .config import AlignmentCfg, WhisperCfg
 
 log = logging.getLogger(__name__)
+
+
+def _ensure_cuda_dlls_on_path() -> None:
+    """Add nvidia-* DLL bin directories to the Windows DLL loader path.
+
+    PyTorch bundles its own cuDNN inside torch\\lib and uses ctypes to load it
+    directly, so torch works even when the loader can't see those DLLs. ctranslate2
+    (used by faster-whisper) just calls LoadLibrary and relies on the OS — so it
+    needs the DLLs on the path. We install them via `nvidia-cublas-cu12` and
+    `nvidia-cudnn-cu12` pip packages, which land them under
+    .venv\\Lib\\site-packages\\nvidia\\<pkg>\\bin. This makes them findable.
+    """
+    if sys.platform != "win32":
+        return
+    candidates: list[Path] = []
+    for sp in site.getsitepackages() + [site.getusersitepackages()]:
+        nvidia_root = Path(sp) / "nvidia"
+        if not nvidia_root.is_dir():
+            continue
+        for sub in nvidia_root.iterdir():
+            bin_dir = sub / "bin"
+            if bin_dir.is_dir():
+                candidates.append(bin_dir)
+    for d in candidates:
+        try:
+            os.add_dll_directory(str(d))
+        except (OSError, FileNotFoundError):
+            pass
+
+
+_ensure_cuda_dlls_on_path()
 
 
 @dataclass
