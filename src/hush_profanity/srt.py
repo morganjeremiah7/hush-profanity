@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import timedelta
 from pathlib import Path
 
-from .profanity import match, normalize, replacement_for
+from .profanity import PhraseSet, detect, replacement_for
 from .transcribe import Word
 
 
@@ -29,24 +29,47 @@ def write_cleaned_srt(
     words: list[Word],
     out: Path,
     swears: set[str],
-    replacements: dict[str, str],
-    default_replacement: str,
+    phrases: PhraseSet | None,
+    word_replacements: dict[str, str],
+    phrase_replacements: dict[str, str],
+    word_default: str,
+    phrase_default: str,
     segment_max_duration: float = 5.0,
 ) -> None:
-    """Group words into cues of up to `segment_max_duration` and replace any swears."""
+    """Group words into cues of up to `segment_max_duration` and replace any swears.
+
+    Phrase matches consume multiple words and emit one replacement at the start
+    of the span; subsequent words in the same span are skipped.
+    """
     out.parent.mkdir(parents=True, exist_ok=True)
+    hits = detect(words, swears, phrases)
+
+    # Build a per-word-index decision map: index -> str (replacement) or None (skip)
+    decision: dict[int, str | None] = {}
+    for hit in hits:
+        s, e = hit.span
+        if hit.is_phrase:
+            decision[s] = replacement_for(hit.matched, phrase_replacements, phrase_default)
+            for k in range(s + 1, e):
+                decision[k] = None
+        else:
+            decision[s] = replacement_for(hit.matched, word_replacements, word_default)
+
     cues: list[tuple[float, float, list[str]]] = []
     cue_start: float | None = None
     cue_words: list[str] = []
     cue_end = 0.0
 
-    for w in words:
-        token = normalize(w.text)
-        matched = match(token, swears)
-        if matched:
-            display = replacement_for(matched, replacements, default_replacement)
+    for i, w in enumerate(words):
+        if i in decision:
+            display = decision[i]
+            if display is None:
+                # Subsequent word in a phrase span — already covered.
+                continue
         else:
             display = w.text.strip()
+        if not display:
+            continue
         if cue_start is None:
             cue_start = w.start
         cue_words.append(display)

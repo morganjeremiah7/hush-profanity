@@ -4,7 +4,7 @@ For each video:
     1. Probe duration + select audio track.
     2. Extract a 16 kHz mono WAV to a scratch file.
     3. Transcribe + align (transcribe.py).
-    4. Detect profanity (profanity.py) and build EDL entries (edl.py).
+    4. Detect profanity (single-word + multi-word phrases) and build EDL entries.
     5. Read existing .edl, replace ONLY the auto section, keep manual entries, write back.
     6. (Optional) Correct against official .srt and write cleaned .srt.
     7. (Optional) Write per-word debug .srt.
@@ -22,7 +22,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import audio, correct, edl, profanity, srt, transcribe
-from .config import Settings, load_replacements, load_swear_words
+from .config import Settings, load_phrase_lines, load_replacements, load_swear_words
 
 log = logging.getLogger(__name__)
 
@@ -35,6 +35,16 @@ class FileResult:
     duration_seconds: float | None = None
     elapsed_seconds: float = 0.0
     error: str | None = None
+
+
+@dataclass
+class DetectionContext:
+    swears: set[str]
+    phrases: profanity.PhraseSet
+    word_replacements: dict[str, str]
+    phrase_replacements: dict[str, str]
+    word_default: str
+    phrase_default: str
 
 
 def find_videos(roots: list[Path], extensions: list[str]) -> list[Path]:
@@ -70,8 +80,7 @@ def _save_checkpoint(path: Path, done: set[str]) -> None:
     tmp.replace(path)
 
 
-def process_one(video: Path, settings: Settings, swears: set[str],
-                replacements: dict[str, str], default_repl: str) -> FileResult:
+def process_one(video: Path, settings: Settings, ctx: DetectionContext) -> FileResult:
     """Process a single video. Never raises — errors are returned in FileResult."""
     started = time.monotonic()
     edl_path = video.with_suffix(".edl")
@@ -111,7 +120,7 @@ def process_one(video: Path, settings: Settings, swears: set[str],
         log.warning("No words returned for %s — writing empty EDL", video.name)
 
     # Profanity is always detected from raw Whisper output (official subs may be censored).
-    hits = profanity.detect(words, swears)
+    hits = profanity.detect(words, ctx.swears, ctx.phrases)
     log.info("Found %d profanity hit(s) in %s", len(hits), video.name)
 
     auto_entries = edl.entries_from_profanity_hits(
@@ -141,7 +150,10 @@ def process_one(video: Path, settings: Settings, swears: set[str],
 
     if settings.subtitles.generate_srt:
         srt.write_cleaned_srt(
-            display_words, srt_path, swears, replacements, default_repl,
+            display_words, srt_path,
+            ctx.swears, ctx.phrases,
+            ctx.word_replacements, ctx.phrase_replacements,
+            ctx.word_default, ctx.phrase_default,
             segment_max_duration=settings.subtitles.segment_max_duration,
         )
     if settings.subtitles.generate_words_srt:
@@ -158,9 +170,22 @@ def process_one(video: Path, settings: Settings, swears: set[str],
 
 def run(settings: Settings) -> list[FileResult]:
     swears = load_swear_words(settings.paths.swears_file)
-    replacements, default_repl = load_replacements(settings.paths.replacements_file)
-    log.info("Loaded %d swear words and %d replacement entries",
-             len(swears), len(replacements))
+    phrase_lines = load_phrase_lines(settings.paths.phrases_file)
+    phrases = profanity.compile_phrases(phrase_lines)
+    word_repl, phrase_repl, word_default, phrase_default = load_replacements(
+        settings.paths.replacements_file
+    )
+    log.info("Loaded %d swear words, %d phrases, %d word replacements, %d phrase replacements",
+             len(swears), len(phrase_lines), len(word_repl), len(phrase_repl))
+
+    ctx = DetectionContext(
+        swears=swears,
+        phrases=phrases,
+        word_replacements=word_repl,
+        phrase_replacements=phrase_repl,
+        word_default=word_default,
+        phrase_default=phrase_default,
+    )
 
     videos = find_videos(settings.library.roots, settings.library.extensions)
     log.info("Found %d candidate video file(s) across %d root(s)",
@@ -174,7 +199,7 @@ def run(settings: Settings) -> list[FileResult]:
             if key in done:
                 continue
             log.info("[%d/%d] %s", i, len(videos), video)
-            result = process_one(video, settings, swears, replacements, default_repl)
+            result = process_one(video, settings, ctx)
             results.append(result)
             if result.ok:
                 done.add(key)

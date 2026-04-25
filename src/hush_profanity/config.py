@@ -58,6 +58,7 @@ class SubtitlesCfg:
 @dataclass
 class PathsCfg:
     swears_file: Path
+    phrases_file: Path
     replacements_file: Path
     log_dir: Path
     checkpoint_file: Path
@@ -118,6 +119,7 @@ class Settings:
             subtitles=SubtitlesCfg(**{k: v for k, v in sub.items() if k in SubtitlesCfg.__annotations__}),
             paths=PathsCfg(
                 swears_file=resolve(pa.get("swears_file", "config/swears.txt")),
+                phrases_file=resolve(pa.get("phrases_file", "config/swear_phrases.txt")),
                 replacements_file=resolve(pa.get("replacements_file", "config/replacements.json")),
                 log_dir=resolve(pa.get("log_dir", "logs")),
                 checkpoint_file=resolve(pa.get("checkpoint_file", "logs/checkpoint.json")),
@@ -146,10 +148,33 @@ def load_swear_words(path: Path) -> set[str]:
     return words
 
 
-def load_replacements(path: Path) -> tuple[dict[str, str], str]:
-    """Return (mapping, default). Keys starting with _ are metadata."""
+def load_phrase_lines(path: Path) -> list[str]:
+    """Return raw phrase strings (lowercase, comments stripped). Tokenization is the matcher's job."""
+    out: list[str] = []
+    if not path.exists():
+        return out
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            s = line.strip().lower()
+            if s and not s.startswith("#"):
+                out.append(s)
+    return out
+
+
+def load_replacements(path: Path) -> tuple[dict[str, str], dict[str, str], str, str]:
+    """Return (word_map, phrase_map, word_default, phrase_default).
+
+    Supports the v0.2 nested format ({"words": {...}, "phrases": {...}}) and the
+    v0.1 flat format ({"fuck": "fudge", ...}) for backwards compatibility.
+    """
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
-    default = data.get("_default", "...")
-    mapping = {k: v for k, v in data.items() if not k.startswith("_")}
-    return mapping, default
+    word_default = data.get("_default", "...")
+    phrase_default = data.get("_phrase_default", word_default)
+    if "words" in data and isinstance(data["words"], dict):
+        word_map = dict(data["words"])
+    else:
+        word_map = {k: v for k, v in data.items()
+                    if not k.startswith("_") and isinstance(v, str)}
+    phrase_map = dict(data.get("phrases", {})) if isinstance(data.get("phrases"), dict) else {}
+    return word_map, phrase_map, word_default, phrase_default

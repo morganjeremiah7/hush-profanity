@@ -1,0 +1,92 @@
+# Multi-word phrases the matcher will treat as a single profanity hit.
+# One phrase per line, lowercase, words separated by single spaces.
+# Lines starting with # are comments.
+#
+# These exist because Whisper sometimes splits compounds ("bullshit" -> "bull shit"),
+# and because some expletives are inherently multi-word ("oh my god"). Adding the
+# single words to swears.txt would over-fire (e.g. "god" alone fires too often).
+#
+# A phrase always wins over single-word matches if both apply at the same position
+# (greedy longest-match). The matcher tries phrase variants with and without
+# internal apostrophes, so "for god's sake" also catches "for gods sake".
+#
+# The cleaned-subtitle replacement for these comes from the "_phrases" section of
+# config/replacements.json. Anything without a specific replacement uses _default.
+
+# religious / mild expletives
+oh god
+oh my god
+my god
+mother of god
+mother of christ
+god damn
+god damn it
+god dammit
+goddamn it
+for god's sake
+for christ's sake
+for fuck's sake
+for fucks sake
+swear to god
+holy god
+jesus christ
+christ almighty
+sweet jesus
+holy moses
+holy mother
+
+# fuck variants
+the fuck
+what the fuck
+who the fuck
+where the fuck
+why the fuck
+how the fuck
+fuck you
+fuck off
+fuck yourself
+go fuck yourself
+fuck this
+fuck that
+fuck me
+get fucked
+piece of shit
+
+# shit / hell variants
+holy shit
+holy hell
+oh shit
+bull shit
+horse shit
+no shit
+the shit
+what the shit
+what the hell
+the hell
+go to hell
+
+# crap / damn (mild)
+holy crap
+oh crap
+
+# compound insults Whisper may split
+son of a bitch
+son of a whore
+dumb ass
+dumb fuck
+dumb shit
+ass hole
+ass hat
+ass clown
+butt hole
+mother fucker
+mother fucking
+cock sucker
+blow job
+hand job
+jack off
+jerk off
+piss off
+pissed off
+nut sack
+butt plug

@@ -64,7 +64,11 @@ official_sub_suffixes = [".eng.srt", ".en.srt", ".english.srt"]
 [paths]
 # Path to the swear word list. One word per line, lowercase. Comments start with #.
 swears_file = "config/swears.txt"
-# Path to the replacement-words JSON.
+# Path to the multi-word phrase list. One phrase per line, lowercase, words space-separated.
+# Catches things like "oh my god" and "what the fuck" that the single-word list can't (you wouldn't
+# want to add "god" alone — it would over-fire). Also catches Whisper splits like "bull shit".
+phrases_file = "config/swear_phrases.txt"
+# Path to the replacement-words JSON. Has both "words" and "phrases" sections.
 replacements_file = "config/replacements.json"
 # Where to keep per-run logs. Created on demand.
 log_dir = "logs"
