@@ -72,6 +72,18 @@ class WebUiCfg:
 
 
 @dataclass
+class PerformanceCfg:
+    # Number of CPU threads running ffmpeg in parallel, ahead of the GPU.
+    encode_workers: int = 2
+    # Number of CPU threads doing post-processing (profanity detection + EDL/SRT writes).
+    post_workers: int = 2
+    # batch_size passed to BatchedInferencePipeline. 1 = sequential (no batching).
+    # 16 typically gives 2-3x throughput vs sequential on a 24GB GPU. Larger batches
+    # use more VRAM but plateau quickly. Drop to 8 or 4 if you OOM.
+    whisper_batch_size: int = 16
+
+
+@dataclass
 class Settings:
     library: LibraryCfg
     whisper: WhisperCfg
@@ -80,6 +92,7 @@ class Settings:
     subtitles: SubtitlesCfg
     paths: PathsCfg
     webui: WebUiCfg
+    performance: PerformanceCfg
     project_root: Path
 
     @classmethod
@@ -125,6 +138,10 @@ class Settings:
                 checkpoint_file=resolve(pa.get("checkpoint_file", "logs/checkpoint.json")),
             ),
             webui=WebUiCfg(**{k: v for k, v in wui.items() if k in WebUiCfg.__annotations__}),
+            performance=PerformanceCfg(**{
+                k: v for k, v in data.get("performance", {}).items()
+                if k in PerformanceCfg.__annotations__
+            }),
             project_root=project_root,
         )
 

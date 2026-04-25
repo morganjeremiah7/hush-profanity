@@ -84,3 +84,20 @@ port = 8765
 host = "127.0.0.1"
 # Default action for manually-marked scenes. 0 = cut (skip the segment), 1 = mute.
 default_action = 0
+
+[performance]
+# Three-stage pipeline: encode (CPU) -> Whisper transcribe + align (GPU) -> post (CPU).
+# All three stages run concurrently on different files for steady-state throughput.
+
+# How many ffmpeg processes run in parallel pre-encoding the next batch of WAVs.
+# Default 2 keeps the GPU fed without saturating disk I/O on a network share.
+encode_workers = 2
+# How many threads write EDL/SRT files in parallel after Whisper finishes.
+# These are CPU+I/O light; 2 is plenty.
+post_workers = 2
+# Whisper batch size — how many VAD-detected speech chunks process in parallel
+# inside the model. 16 typically gives 2-3x speedup vs sequential on a 24GB GPU
+# with no accuracy change. Drop to 8 or 4 if you see CUDA OOM.
+# Set to 1 to disable batching (uses the original sequential path with
+# condition_on_previous_text=False — the validated v0.1 behavior).
+whisper_batch_size = 16

@@ -1,25 +1,33 @@
-"""Library walker + per-file processing pipeline + crash-safe checkpointing.
+"""Library walker + 3-stage parallel pipeline + crash-safe checkpointing.
 
-For each video:
-    1. Probe duration + select audio track.
-    2. Extract a 16 kHz mono WAV to a scratch file.
-    3. Transcribe + align (transcribe.py).
-    4. Detect profanity (single-word + multi-word phrases) and build EDL entries.
-    5. Read existing .edl, replace ONLY the auto section, keep manual entries, write back.
-    6. (Optional) Correct against official .srt and write cleaned .srt.
-    7. (Optional) Write per-word debug .srt.
-    8. Mark file as processed in the checkpoint file.
+Pipeline:
 
-Anything that goes wrong on one file is logged and the loop continues.
+    encode_q  ->  [N encode workers]  ->  gpu_q  ->  [1 GPU worker]  ->  post_q  ->  [M post workers]
+
+    encode workers (CPU): ffmpeg-extract WAV from each video into a private tempdir.
+    GPU worker (GPU):     transcribe WAV with Whisper + wav2vec2 alignment.
+    post workers (CPU):   detect profanity, write EDL + SRT, save checkpoint, delete tempdir.
+
+All three stages run concurrently on different files. At steady state, while the GPU is
+transcribing file N, encoders are already preparing file N+1 and N+2, and post workers
+are writing the outputs for file N-1. The GPU is the throughput bottleneck — encode and
+post never need to wait for it.
+
+Bounded queues prevent runaway memory if one stage stalls. Sentinel propagation
+(None values) shuts the pipeline down cleanly after the producer exhausts the work list.
 """
 from __future__ import annotations
 
 import json
 import logging
+import shutil
 import tempfile
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from queue import Queue
+from typing import Any
 
 from . import audio, correct, edl, profanity, srt, transcribe
 from .config import Settings, load_phrase_lines, load_replacements, load_swear_words
@@ -45,6 +53,20 @@ class DetectionContext:
     phrase_replacements: dict[str, str]
     word_default: str
     phrase_default: str
+
+
+@dataclass
+class _WorkItem:
+    """Carries one file through all three pipeline stages."""
+    video: Path
+    started: float = 0.0
+    tempdir: Path | None = None
+    wav_path: Path | None = None
+    audio_idx: int = 0
+    duration: float | None = None
+    words: list[Any] = field(default_factory=list)
+    error: str | None = None
+    skipped: bool = False
 
 
 def find_videos(roots: list[Path], extensions: list[str]) -> list[Path]:
@@ -80,46 +102,20 @@ def _save_checkpoint(path: Path, done: set[str]) -> None:
     tmp.replace(path)
 
 
-def process_one(video: Path, settings: Settings, ctx: DetectionContext) -> FileResult:
-    """Process a single video. Never raises — errors are returned in FileResult."""
-    started = time.monotonic()
+def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -> int:
+    """Detect profanity, write EDL + SRT for one item. Returns the profanity hit count.
+
+    Raises on write failure — caller catches and records the error.
+    """
+    video = item.video
+    words = item.words or []
     edl_path = video.with_suffix(".edl")
     srt_path = video.with_suffix(".srt")
     words_srt_path = video.with_name(f"{video.stem}-words.srt")
 
-    # Skip if we've already produced auto entries for this file (keeps re-runs cheap).
-    if settings.library.skip_if_processed and edl_path.exists():
-        existing = edl.EdlFile.read(edl_path, title=video.stem)
-        if existing.has_auto_entries():
-            log.info("Skipping (already has auto EDL): %s", video.name)
-            return FileResult(path=video, ok=True, profanity_count=len(existing.auto),
-                              elapsed_seconds=time.monotonic() - started)
-
-    duration = audio.probe_duration(video)
-    audio_idx = audio.select_audio_track(video, prefer_language=settings.whisper.audio_language)
-    log.info("Processing %s (duration=%.1fs, audio_track=%d)",
-             video.name, duration or -1, audio_idx)
-
-    with tempfile.TemporaryDirectory(prefix="hush-") as scratch:
-        wav = Path(scratch) / "audio.wav"
-        try:
-            audio.extract_wav(video, wav, audio_index=audio_idx)
-        except audio.AudioExtractError as e:
-            log.error("Audio extraction failed for %s: %s", video, e)
-            return FileResult(path=video, ok=False, duration_seconds=duration,
-                              elapsed_seconds=time.monotonic() - started, error=str(e))
-
-        try:
-            words = transcribe.transcribe_to_words(wav, settings.whisper, settings.alignment)
-        except Exception as e:
-            log.exception("Transcription failed for %s", video)
-            return FileResult(path=video, ok=False, duration_seconds=duration,
-                              elapsed_seconds=time.monotonic() - started, error=f"transcribe: {e}")
-
     if not words:
         log.warning("No words returned for %s — writing empty EDL", video.name)
 
-    # Profanity is always detected from raw Whisper output (official subs may be censored).
     hits = profanity.detect(words, ctx.swears, ctx.phrases)
     log.info("Found %d profanity hit(s) in %s", len(hits), video.name)
 
@@ -130,23 +126,24 @@ def process_one(video: Path, settings: Settings, ctx: DetectionContext) -> FileR
         merge_gap=settings.edl.merge_gap_seconds,
     )
 
-    # Preserve any manual section in the existing .edl.
     edl_file = edl.EdlFile.read(edl_path, title=video.stem)
     edl_file.auto = auto_entries
     edl_file.title = video.stem
     edl_file.write(edl_path)
 
-    # Subtitles: optionally correct against official .srt before writing.
     display_words = words
     if settings.subtitles.use_official_subs:
-        official_path = correct.find_official_subtitle(video, settings.subtitles.official_sub_suffixes)
+        official_path = correct.find_official_subtitle(
+            video, settings.subtitles.official_sub_suffixes
+        )
         if official_path:
             try:
                 official_words = correct.parse_srt_words(official_path)
                 display_words = correct.correct_words(words, official_words)
                 log.info("Corrected against official subtitle: %s", official_path.name)
             except Exception as e:
-                log.warning("Subtitle correction failed for %s (%s) — using raw Whisper", video.name, e)
+                log.warning("Subtitle correction failed for %s (%s) — using raw Whisper",
+                            video.name, e)
 
     if settings.subtitles.generate_srt:
         srt.write_cleaned_srt(
@@ -159,13 +156,170 @@ def process_one(video: Path, settings: Settings, ctx: DetectionContext) -> FileR
     if settings.subtitles.generate_words_srt:
         srt.write_per_word_srt(words, words_srt_path)
 
-    return FileResult(
-        path=video,
-        ok=True,
-        profanity_count=len(hits),
-        duration_seconds=duration,
-        elapsed_seconds=time.monotonic() - started,
+    return len(hits)
+
+
+def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
+                   done: set[str], transcriber: transcribe.Transcriber):
+    """Build worker callables + queues. Caller starts the threads."""
+    perf = settings.performance
+    encode_q: Queue = Queue(maxsize=perf.encode_workers + 1)
+    gpu_q: Queue = Queue(maxsize=2)
+    post_q: Queue = Queue(maxsize=perf.post_workers + 2)
+
+    results: list[FileResult] = []
+    results_lock = threading.Lock()
+    checkpoint_lock = threading.Lock()
+
+    def _record(r: FileResult) -> None:
+        with results_lock:
+            results.append(r)
+
+    def encode_worker() -> None:
+        while True:
+            item = encode_q.get()
+            if item is None:
+                return
+            video = item.video
+            item.started = time.monotonic()
+
+            edl_path = video.with_suffix(".edl")
+            if settings.library.skip_if_processed and edl_path.exists():
+                existing = edl.EdlFile.read(edl_path, title=video.stem)
+                if existing.has_auto_entries():
+                    log.info("Skipping (already has auto EDL): %s", video.name)
+                    item.skipped = True
+                    gpu_q.put(item)
+                    continue
+
+            try:
+                item.tempdir = Path(tempfile.mkdtemp(prefix="hush-"))
+                item.wav_path = item.tempdir / "audio.wav"
+                item.audio_idx = audio.select_audio_track(
+                    video, prefer_language=settings.whisper.audio_language
+                )
+                item.duration = audio.probe_duration(video)
+                log.info("[encode] %s (duration=%.1fs, audio_track=%d)",
+                         video.name, item.duration or -1, item.audio_idx)
+                audio.extract_wav(video, item.wav_path, item.audio_idx)
+            except Exception as e:
+                log.exception("[encode] failed: %s", video)
+                item.error = f"encode: {e}"
+            gpu_q.put(item)
+
+    def gpu_worker() -> None:
+        while True:
+            item = gpu_q.get()
+            if item is None:
+                return
+            if item.skipped or item.error:
+                post_q.put(item)
+                continue
+            try:
+                log.info("[gpu] transcribing %s", item.video.name)
+                t0 = time.monotonic()
+                item.words = transcriber.transcribe(item.wav_path)
+                log.info("[gpu] %d words from %s in %.1fs",
+                         len(item.words), item.video.name, time.monotonic() - t0)
+            except Exception as e:
+                log.exception("[gpu] failed: %s", item.video)
+                item.error = f"transcribe: {e}"
+            post_q.put(item)
+
+    def post_worker() -> None:
+        while True:
+            item = post_q.get()
+            if item is None:
+                return
+            try:
+                if item.skipped:
+                    elapsed = time.monotonic() - item.started
+                    _record(FileResult(path=item.video, ok=True,
+                                       duration_seconds=item.duration,
+                                       elapsed_seconds=elapsed))
+                    continue
+                if item.error:
+                    elapsed = time.monotonic() - item.started
+                    _record(FileResult(path=item.video, ok=False, error=item.error,
+                                       duration_seconds=item.duration,
+                                       elapsed_seconds=elapsed))
+                    continue
+                try:
+                    hit_count = _write_outputs(item, settings, ctx)
+                    elapsed = time.monotonic() - item.started
+                    _record(FileResult(path=item.video, ok=True,
+                                       profanity_count=hit_count,
+                                       duration_seconds=item.duration,
+                                       elapsed_seconds=elapsed))
+                    with checkpoint_lock:
+                        done.add(str(item.video))
+                        _save_checkpoint(settings.paths.checkpoint_file, done)
+                except Exception as e:
+                    log.exception("[post] failed: %s", item.video)
+                    elapsed = time.monotonic() - item.started
+                    _record(FileResult(path=item.video, ok=False, error=f"post: {e}",
+                                       duration_seconds=item.duration,
+                                       elapsed_seconds=elapsed))
+            finally:
+                if item.tempdir is not None:
+                    shutil.rmtree(item.tempdir, ignore_errors=True)
+
+    return encode_q, gpu_q, post_q, encode_worker, gpu_worker, post_worker, results
+
+
+def _run_pipeline(settings: Settings, ctx: DetectionContext,
+                  todo: list[Path], done: set[str]) -> list[FileResult]:
+    perf = settings.performance
+    transcriber = transcribe.Transcriber(
+        settings.whisper, settings.alignment, batch_size=perf.whisper_batch_size,
     )
+
+    encode_q, gpu_q, post_q, encode_worker, gpu_worker, post_worker, results = (
+        _make_pipeline(settings, ctx, todo, done, transcriber)
+    )
+
+    encode_threads = [
+        threading.Thread(target=encode_worker, name=f"encode-{i}", daemon=True)
+        for i in range(perf.encode_workers)
+    ]
+    gpu_thread = threading.Thread(target=gpu_worker, name="gpu", daemon=True)
+    post_threads = [
+        threading.Thread(target=post_worker, name=f"post-{i}", daemon=True)
+        for i in range(perf.post_workers)
+    ]
+
+    for t in encode_threads:
+        t.start()
+    gpu_thread.start()
+    for t in post_threads:
+        t.start()
+
+    interrupted = False
+    try:
+        for video in todo:
+            encode_q.put(_WorkItem(video=video))
+    except KeyboardInterrupt:
+        interrupted = True
+        log.warning("Interrupted by user — draining in-flight files (Ctrl+C again to force-quit)")
+
+    # Sentinel chain: producer is done; signal each stage in order.
+    for _ in range(perf.encode_workers):
+        encode_q.put(None)
+    for t in encode_threads:
+        t.join()
+    gpu_q.put(None)
+    gpu_thread.join()
+    for _ in range(perf.post_workers):
+        post_q.put(None)
+    for t in post_threads:
+        t.join()
+
+    transcriber.close()
+
+    if interrupted:
+        log.warning("Pipeline drained; checkpoint preserved — re-run to resume.")
+
+    return results
 
 
 def run(settings: Settings) -> list[FileResult]:
@@ -178,6 +332,12 @@ def run(settings: Settings) -> list[FileResult]:
     log.info("Loaded %d swear words, %d phrases, %d word replacements, %d phrase replacements",
              len(swears), len(phrase_lines), len(word_repl), len(phrase_repl))
 
+    if not settings.library.roots:
+        raise SystemExit(
+            "No library roots configured. Edit config/settings.toml and set "
+            "[library].roots to one or more folders to scan."
+        )
+
     ctx = DetectionContext(
         swears=swears,
         phrases=phrases,
@@ -187,30 +347,19 @@ def run(settings: Settings) -> list[FileResult]:
         phrase_default=phrase_default,
     )
 
-    if not settings.library.roots:
-        raise SystemExit(
-            "No library roots configured. Edit config/settings.toml and set "
-            "[library].roots to one or more folders to scan."
-        )
     videos = find_videos(settings.library.roots, settings.library.extensions)
     log.info("Found %d candidate video file(s) across %d root(s)",
              len(videos), len(settings.library.roots))
 
     done = _load_checkpoint(settings.paths.checkpoint_file)
-    results: list[FileResult] = []
-    try:
-        for i, video in enumerate(videos, 1):
-            key = str(video)
-            if key in done:
-                continue
-            log.info("[%d/%d] %s", i, len(videos), video)
-            result = process_one(video, settings, ctx)
-            results.append(result)
-            if result.ok:
-                done.add(key)
-                _save_checkpoint(settings.paths.checkpoint_file, done)
-            else:
-                log.error("FAILED: %s — %s", video, result.error)
-    except KeyboardInterrupt:
-        log.warning("Interrupted by user — checkpoint saved, safe to resume")
-    return results
+    todo = [v for v in videos if str(v) not in done]
+    if not todo:
+        log.info("Nothing to do — all videos already in checkpoint.")
+        return []
+
+    log.info("Pipeline: %d encode workers, 1 GPU worker (batch_size=%d), %d post workers",
+             settings.performance.encode_workers,
+             settings.performance.whisper_batch_size,
+             settings.performance.post_workers)
+
+    return _run_pipeline(settings, ctx, todo, done)

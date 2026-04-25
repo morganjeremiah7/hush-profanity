@@ -6,6 +6,11 @@ Pipeline:
 
 We need tight word boundaries because muting a swear 200 ms late lets the consonant
 through. Whisper's own word timestamps are cross-attention guesses and routinely drift.
+
+The Transcriber class loads the Whisper model and the alignment model ONCE and reuses
+them across many files. The previous version reloaded both per file (~10 s overhead),
+which became the dominant cost for large batches once the parallel pipeline removed
+encode and post-processing latency.
 """
 from __future__ import annotations
 
@@ -68,85 +73,144 @@ class Word:
     score: float = 1.0
 
 
-def transcribe_to_words(
-    audio_wav: Path,
-    whisper_cfg: WhisperCfg,
-    alignment_cfg: AlignmentCfg,
-) -> list[Word]:
-    """Return per-word records with precise timestamps."""
-    import torch  # imported lazily so config-only operations don't pay the import cost
-    from faster_whisper import WhisperModel
+class Transcriber:
+    """Loads Whisper + alignment models once; transcribes many files.
 
-    log.info("Loading Whisper model %s on %s (%s)",
-             whisper_cfg.model, whisper_cfg.device, whisper_cfg.compute_type)
-    model = WhisperModel(
-        whisper_cfg.model,
-        device=whisper_cfg.device,
-        device_index=whisper_cfg.device_index,
-        compute_type=whisper_cfg.compute_type,
-    )
+    Not thread-safe — only ONE thread should call .transcribe() at a time. The
+    parallel pipeline owns a single Transcriber that lives on the GPU worker thread.
+    """
 
-    log.info("Transcribing %s", audio_wav.name)
-    segments_iter, info = model.transcribe(
-        str(audio_wav),
-        language=whisper_cfg.language,
-        beam_size=whisper_cfg.beam_size,
-        vad_filter=whisper_cfg.vad_filter,
-        word_timestamps=True,
-        condition_on_previous_text=False,  # reduces hallucination loops
-    )
-    log.info("Detected language: %s (probability %.2f)", info.language, info.language_probability)
+    def __init__(self, whisper_cfg: WhisperCfg, alignment_cfg: AlignmentCfg, batch_size: int = 1) -> None:
+        self.whisper_cfg = whisper_cfg
+        self.alignment_cfg = alignment_cfg
+        self.batch_size = max(1, int(batch_size))
+        self._model = None
+        self._batched = None
+        self._align_model = None
+        self._align_metadata = None
+        self._align_lang: str | None = None
 
-    raw_segments = []
-    for seg in segments_iter:
-        words = []
-        if seg.words:
-            for w in seg.words:
-                words.append({
-                    "word": w.word,
-                    "start": float(w.start) if w.start is not None else float(seg.start),
-                    "end": float(w.end) if w.end is not None else float(seg.end),
-                    "probability": float(w.probability) if w.probability is not None else 1.0,
-                })
-        raw_segments.append({
-            "start": float(seg.start),
-            "end": float(seg.end),
-            "text": seg.text,
-            "words": words,
-        })
+    def load(self) -> None:
+        """Load models if not already loaded. Idempotent."""
+        if self._model is not None:
+            return
 
-    # Free the Whisper model before loading the alignment model — they fight for VRAM.
-    del model
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
+        from faster_whisper import WhisperModel
 
-    if not alignment_cfg.enabled:
-        return _flatten_words(raw_segments)
-
-    log.info("Loading wav2vec2 alignment model")
-    try:
-        import whisperx
-        align_model, metadata = whisperx.load_align_model(
-            language_code=info.language,
-            device=whisper_cfg.device,
+        log.info("Loading Whisper model %s on %s (%s)",
+                 self.whisper_cfg.model, self.whisper_cfg.device, self.whisper_cfg.compute_type)
+        self._model = WhisperModel(
+            self.whisper_cfg.model,
+            device=self.whisper_cfg.device,
+            device_index=self.whisper_cfg.device_index,
+            compute_type=self.whisper_cfg.compute_type,
         )
-        aligned = whisperx.align(
-            raw_segments,
-            align_model,
-            metadata,
-            str(audio_wav),
-            whisper_cfg.device,
-            return_char_alignments=False,
-        )
-        del align_model
+
+        if self.batch_size > 1:
+            from faster_whisper import BatchedInferencePipeline
+            log.info("Wrapping in BatchedInferencePipeline (batch_size=%d)", self.batch_size)
+            self._batched = BatchedInferencePipeline(model=self._model)
+
+        if self.alignment_cfg.enabled:
+            try:
+                import whisperx
+                lang = self.whisper_cfg.language or "en"
+                log.info("Loading wav2vec2 alignment model (language=%s)", lang)
+                self._align_model, self._align_metadata = whisperx.load_align_model(
+                    language_code=lang, device=self.whisper_cfg.device,
+                )
+                self._align_lang = lang
+            except Exception as e:
+                log.warning("Alignment model load failed (%s) — alignment will be skipped", e)
+                self._align_model = None
+
+    def transcribe(self, audio_wav: Path) -> list[Word]:
+        """Transcribe one file, return per-word records with precise timestamps."""
+        self.load()
+
+        if self._batched is not None:
+            log.debug("Transcribing %s (batched, batch_size=%d)", audio_wav.name, self.batch_size)
+            segments_iter, info = self._batched.transcribe(
+                str(audio_wav),
+                batch_size=self.batch_size,
+                language=self.whisper_cfg.language,
+                vad_filter=self.whisper_cfg.vad_filter,
+                word_timestamps=True,
+            )
+        else:
+            log.debug("Transcribing %s (sequential)", audio_wav.name)
+            segments_iter, info = self._model.transcribe(
+                str(audio_wav),
+                language=self.whisper_cfg.language,
+                beam_size=self.whisper_cfg.beam_size,
+                vad_filter=self.whisper_cfg.vad_filter,
+                word_timestamps=True,
+                condition_on_previous_text=False,  # sequential mode: avoid hallucination loops
+            )
+
+        raw_segments = []
+        for seg in segments_iter:
+            words = []
+            if seg.words:
+                for w in seg.words:
+                    words.append({
+                        "word": w.word,
+                        "start": float(w.start) if w.start is not None else float(seg.start),
+                        "end": float(w.end) if w.end is not None else float(seg.end),
+                        "probability": float(w.probability) if w.probability is not None else 1.0,
+                    })
+            raw_segments.append({
+                "start": float(seg.start),
+                "end": float(seg.end),
+                "text": seg.text,
+                "words": words,
+            })
+
+        if self._align_model is None:
+            return _flatten_words(raw_segments)
+
+        try:
+            import whisperx
+            aligned = whisperx.align(
+                raw_segments,
+                self._align_model,
+                self._align_metadata,
+                str(audio_wav),
+                self.whisper_cfg.device,
+                return_char_alignments=False,
+            )
+            return _flatten_words(aligned.get("segments", raw_segments))
+        except Exception as e:
+            log.warning("Alignment failed for %s (%s) — falling back to Whisper word timestamps",
+                        audio_wav.name, e)
+            return _flatten_words(raw_segments)
+
+    def close(self) -> None:
+        """Free GPU memory. Optional — called automatically on process exit."""
+        self._model = None
+        self._batched = None
+        self._align_model = None
+        self._align_metadata = None
         gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        return _flatten_words(aligned.get("segments", raw_segments))
-    except Exception as e:
-        log.warning("Alignment failed (%s) — falling back to Whisper word timestamps", e)
-        return _flatten_words(raw_segments)
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
+
+
+def transcribe_to_words(audio_wav: Path, whisper_cfg: WhisperCfg,
+                        alignment_cfg: AlignmentCfg, batch_size: int = 1) -> list[Word]:
+    """Single-shot helper — for one-off use. Reloads models every call (slow).
+
+    Prefer instantiating Transcriber once and reusing it for batches.
+    """
+    t = Transcriber(whisper_cfg, alignment_cfg, batch_size=batch_size)
+    try:
+        return t.transcribe(audio_wav)
+    finally:
+        t.close()
 
 
 def _flatten_words(segments: list[dict]) -> list[Word]:
