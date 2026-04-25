@@ -1,0 +1,10 @@
+# Pinned runtime dependencies. For installation instructions see docs/INSTALL.md.
+# PyTorch + CUDA wheels are NOT listed here — they must be installed first
+# via the official index URL (see scripts/install-windows.ps1).
+
+faster-whisper>=1.0.3
+whisperx>=3.1.5
+ffmpeg-python>=0.2.0
+srt>=3.5.3
+flask>=3.0.0
+tomli>=2.0.1; python_version<"3.11"

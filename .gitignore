@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.eggs/
+*.egg
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual envs
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Local config (real settings, not example)
+config/settings.toml
+config/settings.local.toml
+*.local.*
+
+# Runtime artifacts
+logs/
+*.log
+checkpoints/
+.cache/
+
+# Whisper / model downloads
+models/
+*.bin
+*.pt
+*.ckpt
+
+# Sidecar test fixtures (don't commit real video data)
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+*.srt
+*.edl
+*.vtt
+*.ass
+# but DO commit examples in tests/fixtures/
+!tests/fixtures/**/*.srt
+!tests/fixtures/**/*.edl
+!tests/fixtures/**/*.vtt

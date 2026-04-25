@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hush-profanity"
+version = "0.1.0"
+description = "Generate Kodi-compatible EDL files and clean subtitles to mute profanity and skip scenes in your video library, powered by Whisper."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10,<3.13"
+authors = [{ name = "Morgan Jeremiah" }]
+keywords = ["plex", "kodi", "whisper", "edl", "subtitles", "parental-controls", "profanity-filter"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: GPU :: NVIDIA CUDA",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "faster-whisper>=1.0.3",
+    "whisperx>=3.1.5",
+    "torch>=2.1.0",
+    "torchaudio>=2.1.0",
+    "ffmpeg-python>=0.2.0",
+    "srt>=3.5.3",
+    "flask>=3.0.0",
+    "tomli>=2.0.1; python_version<'3.11'",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "ruff>=0.5"]
+
+[project.scripts]
+hush = "hush_profanity.cli:main"
+hush-webui = "hush_profanity.webui.server:main"
+
+[project.urls]
+Homepage = "https://github.com/morganjeremiah7/hush-profanity"
+Repository = "https://github.com/morganjeremiah7/hush-profanity"
+Issues = "https://github.com/morganjeremiah7/hush-profanity/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+hush_profanity = ["webui/templates/*.html", "webui/static/*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"

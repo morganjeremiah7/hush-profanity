@@ -1,0 +1,80 @@
+# hush-profanity configuration
+# Copy this to settings.toml and edit. settings.toml is gitignored.
+
+[library]
+# One or more root directories to scan for video files. Subdirectories are walked recursively.
+roots = [
+    "Y:\\Series",
+    "Y:\\Movies",
+]
+# File extensions to process.
+extensions = [".mp4", ".mkv", ".avi", ".mov", ".m4v"]
+# Skip a video if the EDL already has an auto-generated section.
+# Set to false to force a re-scan of every file.
+skip_if_processed = true
+
+[whisper]
+# Model size: tiny, base, small, medium, large-v2, large-v3, large-v3-turbo, distil-large-v3
+# large-v3 is the most accurate; on a 24 GB GPU it runs comfortably in float16.
+model = "large-v3"
+# Whisper compute_type: float16 (best on Ampere+ GPUs like the 3090),
+# int8_float16 (~half VRAM, slight accuracy loss), int8 (CPU or low-VRAM).
+compute_type = "float16"
+# "cuda" for GPU, "cpu" for CPU-only.
+device = "cuda"
+# Specific GPU index when multiple are present.
+device_index = 0
+# Beam size for decoding. 5 is a good quality/speed default.
+beam_size = 5
+# Language hint. "en" disables language detection (faster, more accurate for English content).
+language = "en"
+# Enable Silero VAD to skip silence/music. Strongly recommended — prevents hallucinated profanity.
+vad_filter = true
+# When .mkv has multiple audio tracks, prefer this language (ISO 639-1 or 639-2 code).
+audio_language = "eng"
+
+[alignment]
+# WhisperX wav2vec2 forced alignment for tight (~20ms) word boundaries.
+# Without this, Whisper word timestamps drift by 200-500ms — long enough to leak swears past the mute.
+enabled = true
+
+[edl]
+# EDL action for profanity: 1 = mute (recommended), 0 = cut entirely.
+profanity_action = 1
+# Pad the mute region by this many seconds on each side. Helps catch the leading consonant /
+# trailing release of the swear when alignment is slightly off.
+padding_seconds = 0.10
+# Merge adjacent profanity entries within this many seconds into one mute region.
+merge_gap_seconds = 2.0
+
+[subtitles]
+# Generate the cleaned .srt next to the video.
+generate_srt = true
+# Generate a debug per-word .srt named <base>-words.srt. Useful when troubleshooting timing.
+generate_words_srt = false
+# Maximum duration (seconds) of a single subtitle cue when grouping words.
+segment_max_duration = 5.0
+# When an official .srt is found next to the video (e.g. <base>.srt or <base>.eng.srt),
+# align Whisper output to it and prefer official spelling. Whisper-only when no match found.
+use_official_subs = true
+# Suffixes (in order of preference) to look for the official subtitle file.
+# The plain "<base>.srt" is implied first; these are additions.
+official_sub_suffixes = [".eng.srt", ".en.srt", ".english.srt"]
+
+[paths]
+# Path to the swear word list. One word per line, lowercase. Comments start with #.
+swears_file = "config/swears.txt"
+# Path to the replacement-words JSON.
+replacements_file = "config/replacements.json"
+# Where to keep per-run logs. Created on demand.
+log_dir = "logs"
+# Where to keep the resume checkpoint (which files have been processed).
+checkpoint_file = "logs/checkpoint.json"
+
+[webui]
+# Port for the manual scene-skip web tool. http://localhost:<port>/
+port = 8765
+# Bind address. Leave as 127.0.0.1 unless you want to access from another device on the LAN.
+host = "127.0.0.1"
+# Default action for manually-marked scenes. 0 = cut (skip the segment), 1 = mute.
+default_action = 0
