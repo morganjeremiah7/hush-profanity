@@ -187,6 +187,11 @@ def run(settings: Settings) -> list[FileResult]:
         phrase_default=phrase_default,
     )
 
+    if not settings.library.roots:
+        raise SystemExit(
+            "No library roots configured. Edit config/settings.toml and set "
+            "[library].roots to one or more folders to scan."
+        )
     videos = find_videos(settings.library.roots, settings.library.extensions)
     log.info("Found %d candidate video file(s) across %d root(s)",
              len(videos), len(settings.library.roots))

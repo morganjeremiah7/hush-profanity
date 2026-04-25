@@ -3,10 +3,12 @@
 
 [library]
 # One or more root directories to scan for video files. Subdirectories are walked recursively.
-roots = [
-    "Y:\\Series",
-    "Y:\\Movies",
-]
+# REQUIRED: edit before running. Use double backslashes on Windows ("C:\\Path\\To\\Video").
+# Examples:
+#   roots = ["C:\\Users\\you\\Videos"]
+#   roots = ["D:\\Movies", "D:\\TV"]
+#   roots = ["/home/you/videos"]   # Linux
+roots = []
 # File extensions to process.
 extensions = [".mp4", ".mkv", ".avi", ".mov", ".m4v"]
 # Skip a video if the EDL already has an auto-generated section.

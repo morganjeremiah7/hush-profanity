@@ -82,8 +82,10 @@ if (-not (Test-Path $VenvDir)) {
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip    = Join-Path $VenvDir "Scripts\pip.exe"
 
-Write-Step "Upgrading pip + wheel"
-& $VenvPython -m pip install --upgrade pip wheel setuptools
+Write-Step "Upgrading pip + wheel + setuptools"
+# setuptools 81+ removed pkg_resources, which faster-whisper's ctranslate2 dep
+# still imports at runtime. Pin to <81 until the upstream fix lands.
+& $VenvPython -m pip install --upgrade pip wheel "setuptools<81"
 
 # ---- Torch (must come BEFORE pip install of the package) --------------------
 Write-Step "Installing PyTorch ($Cuda)"
