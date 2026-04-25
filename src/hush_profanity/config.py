@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 
 if sys.version_info >= (3, 11):
@@ -51,8 +51,6 @@ class SubtitlesCfg:
     generate_srt: bool = True
     generate_words_srt: bool = False
     segment_max_duration: float = 5.0
-    use_official_subs: bool = True
-    official_sub_suffixes: list[str] = field(default_factory=lambda: [".eng.srt", ".en.srt"])
 
 
 @dataclass

@@ -7,7 +7,7 @@ Family-safe playback for your Kodi library. Whisper transcribes your videos, gen
 For every video in the library you point it at, hush-profanity produces two sidecar files next to the source:
 
 - **`<video>.edl`** — Kodi-compatible Edit Decision List. The auto-pass writes one entry per detected swear (action `1` = mute by default). Auto and manual entries live in the same file in two clearly-marked sections; re-running the scanner only rewrites the auto section, so manual entries you add through the web tool are preserved.
-- **`<video>.srt`** — Cleaned subtitles with swears swapped for family-friendly substitutes (e.g. *fuck → fudge*, *shit → shoot*). When an official `.srt` is present alongside the video, hush-profanity uses it for spelling and falls back to Whisper for timing — you get readable subtitles with precise timestamps.
+- **`<video>.srt`** — Cleaned subtitles built from Whisper's transcription with swears swapped for family-friendly substitutes (e.g. *fuck → fudge*, *shit → shoot*).
 
 A separate web tool lets you scrub through any video, mark in/out points with hotkeys, and append manual skip ranges (nudity, violence, anything else) to the same EDL.
 
@@ -26,7 +26,7 @@ video.mp4
    │       │
    │       ├──► profanity detector (lowercase, suffix-aware) ──► EDL mute entries
    │       │
-   │       └──► (optional) align to official .srt ──► cleaned subtitles
+   │       └──► swap swears for family-friendly substitutes ──► cleaned subtitles
    │
    ├──► <video>.edl  (auto + manual sections)
    └──► <video>.srt
@@ -117,7 +117,6 @@ Hotkeys in the player:
 | `[edl].profanity_action` | `1` | `1` mute, `0` cut entirely. |
 | `[edl].padding_seconds` | `0.10` | Pad each mute region by this much on either side. |
 | `[edl].merge_gap_seconds` | `2.0` | Merge mutes within this many seconds of each other. |
-| `[subtitles].use_official_subs` | `true` | Prefer spelling from a sibling `.srt` if one exists. |
 | `[webui].port` | `8765` | HTTP port for the manual editor. |
 | `[webui].default_action` | `0` | Default EDL action for manual entries — `0` cut, `1` mute. |
 
@@ -138,7 +137,6 @@ src/hush_profanity/
     audio.py             ffmpeg-based audio extraction + track selection
     transcribe.py        faster-whisper + WhisperX alignment
     profanity.py         word-level swear detection
-    correct.py           align Whisper output to an official .srt
     srt.py               cleaned subtitle writer
     edl.py               sectioned EDL read/write
     scanner.py           library walker + per-file pipeline + checkpointing
@@ -156,7 +154,6 @@ windows/                 install.bat, scan.bat, manual-skip.bat
 - **Slow on first run.** Whisper downloads the `large-v3` model (~3 GB) into your user cache the first time it loads. Subsequent runs reuse the cache.
 - **Wrong audio track on .mkv.** Set `[whisper].audio_language` to the right ISO 639-2 code (`eng`, `spa`, `fre`…). hush-profanity picks the first audio stream tagged with that language.
 - **Profanity in music or silence.** That's a Whisper hallucination. Make sure `[whisper].vad_filter = true` (default).
-- **Whisper transcription is wrong.** Drop the official `.srt` next to the video (e.g. as `<base>.srt` or `<base>.eng.srt`). With `[subtitles].use_official_subs = true` (default), hush-profanity will prefer that spelling for the cleaned subtitles. Profanity detection still uses Whisper because official subs are often censored.
 
 ## License
 

@@ -29,7 +29,7 @@ from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from . import audio, correct, edl, profanity, srt, transcribe
+from . import audio, edl, profanity, srt, transcribe
 from .config import Settings, load_phrase_lines, load_replacements, load_swear_words
 
 log = logging.getLogger(__name__)
@@ -131,23 +131,9 @@ def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -
     edl_file.title = video.stem
     edl_file.write(edl_path)
 
-    display_words = words
-    if settings.subtitles.use_official_subs:
-        official_path = correct.find_official_subtitle(
-            video, settings.subtitles.official_sub_suffixes
-        )
-        if official_path:
-            try:
-                official_words = correct.parse_srt_words(official_path)
-                display_words = correct.correct_words(words, official_words)
-                log.info("Corrected against official subtitle: %s", official_path.name)
-            except Exception as e:
-                log.warning("Subtitle correction failed for %s (%s) — using raw Whisper",
-                            video.name, e)
-
     if settings.subtitles.generate_srt:
         srt.write_cleaned_srt(
-            display_words, srt_path,
+            words, srt_path,
             ctx.swears, ctx.phrases,
             ctx.word_replacements, ctx.phrase_replacements,
             ctx.word_default, ctx.phrase_default,

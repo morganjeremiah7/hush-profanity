@@ -56,12 +56,6 @@ generate_srt = true
 generate_words_srt = false
 # Maximum duration (seconds) of a single subtitle cue when grouping words.
 segment_max_duration = 5.0
-# When an official .srt is found next to the video (e.g. <base>.srt or <base>.eng.srt),
-# align Whisper output to it and prefer official spelling. Whisper-only when no match found.
-use_official_subs = true
-# Suffixes (in order of preference) to look for the official subtitle file.
-# The plain "<base>.srt" is implied first; these are additions.
-official_sub_suffixes = [".eng.srt", ".en.srt", ".english.srt"]
 
 [paths]
 # Path to the swear word list. One word per line, lowercase. Comments start with #.
