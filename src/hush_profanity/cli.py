@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
+import signal
 import sys
 import time
 from pathlib import Path
@@ -10,6 +12,35 @@ from pathlib import Path
 from .config import Settings
 from . import clean as clean_mod
 from .scanner import run
+
+
+def _install_two_strike_sigint() -> None:
+    """First Ctrl+C drains the pipeline gracefully (in-flight files finish);
+    second Ctrl+C calls os._exit and abandons in-flight GPU work.
+
+    Without this, Ctrl+C in a long-running scan blocks until the current
+    transcription completes — minutes per file with no visible response.
+    """
+    counter = [0]
+
+    def handler(sig, frame):
+        counter[0] += 1
+        if counter[0] >= 2:
+            print(
+                "\n[hush] Force exit (second Ctrl+C). In-flight files lost; "
+                "checkpoint preserved.",
+                flush=True,
+            )
+            os._exit(130)
+        print(
+            "\n[hush] Ctrl+C — finishing in-flight files. "
+            "Press Ctrl+C again to force quit.",
+            flush=True,
+        )
+        # Re-raise as KeyboardInterrupt so the producer loop drops out cleanly.
+        raise KeyboardInterrupt
+
+    signal.signal(signal.SIGINT, handler)
 
 
 def _setup_logging(log_dir: Path, verbose: bool, name: str = "hush") -> None:
@@ -30,6 +61,7 @@ def _setup_logging(log_dir: Path, verbose: bool, name: str = "hush") -> None:
 
 def _cmd_scan(args, settings: Settings) -> int:
     _setup_logging(settings.paths.log_dir, args.verbose, "hush")
+    _install_two_strike_sigint()
     results = run(settings)
     ok = sum(1 for r in results if r.ok)
     failed = [r for r in results if not r.ok]

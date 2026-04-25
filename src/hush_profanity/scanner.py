@@ -138,6 +138,8 @@ def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -
             ctx.word_replacements, ctx.phrase_replacements,
             ctx.word_default, ctx.phrase_default,
             segment_max_duration=settings.subtitles.segment_max_duration,
+            max_pause_seconds=settings.subtitles.max_pause_seconds,
+            tail_seconds=settings.subtitles.tail_seconds,
         )
     if settings.subtitles.generate_words_srt:
         srt.write_per_word_srt(words, words_srt_path)

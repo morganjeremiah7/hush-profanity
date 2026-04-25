@@ -54,8 +54,16 @@ merge_gap_seconds = 2.0
 generate_srt = true
 # Generate a debug per-word .srt named <base>-words.srt. Useful when troubleshooting timing.
 generate_words_srt = false
-# Maximum duration (seconds) of a single subtitle cue when grouping words.
+# Hard cap (seconds) on a single subtitle cue. Long monologues with no
+# punctuation get split here for readability.
 segment_max_duration = 5.0
+# Finalize a cue when the gap between consecutive words exceeds this many
+# seconds. Stops one cue from spanning long silences (sentence boundaries,
+# speaker changes, scene cuts). Lower = more cuts, higher = subtitles linger.
+max_pause_seconds = 1.5
+# How long a finalized cue stays on screen after the last word ends, so the
+# viewer has time to finish reading. Capped to not overlap the next cue.
+tail_seconds = 0.5
 
 [paths]
 # Path to the swear word list. One word per line, lowercase. Comments start with #.

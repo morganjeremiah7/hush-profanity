@@ -50,7 +50,16 @@ class EdlCfg:
 class SubtitlesCfg:
     generate_srt: bool = True
     generate_words_srt: bool = False
+    # Hard cap on a single cue's duration. Long monologues with no punctuation
+    # get split here for readability.
     segment_max_duration: float = 5.0
+    # If the gap between consecutive words exceeds this many seconds, finalize
+    # the cue. Stops cues from spanning long silences (sentence boundaries,
+    # speaker changes, scene cuts).
+    max_pause_seconds: float = 1.5
+    # How long a finalized cue stays on screen after the last word ends, so the
+    # viewer has time to finish reading. Capped so we don't crowd the next cue.
+    tail_seconds: float = 0.5
 
 
 @dataclass
