@@ -148,8 +148,15 @@ def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -
 
 
 def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
-                   done: set[str], transcriber: transcribe.Transcriber):
-    """Build worker callables + queues. Caller starts the threads."""
+                   done: set[str]):
+    """Build worker callables + queues. Caller starts the threads.
+
+    No persistent transcriber: each file gets a fresh WhisperModel +
+    alignment model loaded inside the GPU worker, then torn down before the
+    next file. Costs ~10 s per file in load overhead but eliminates the
+    long-running-state wedge we hit with persistent models (see commit
+    history if curious).
+    """
     perf = settings.performance
     encode_q: Queue = Queue(maxsize=perf.encode_workers + 1)
     gpu_q: Queue = Queue(maxsize=2)
@@ -204,9 +211,17 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                 post_q.put(item)
                 continue
             try:
-                log.info("[gpu] transcribing %s", item.video.name)
+                log.info("[gpu] transcribing %s (loading fresh model)", item.video.name)
                 t0 = time.monotonic()
-                item.words = transcriber.transcribe(item.wav_path)
+                # Fresh WhisperModel + alignment model per file. transcribe_to_words
+                # constructs a Transcriber, runs it, and tears it down — clearing any
+                # accumulated GPU state that would otherwise risk wedging.
+                item.words = transcribe.transcribe_to_words(
+                    item.wav_path,
+                    settings.whisper,
+                    settings.alignment,
+                    batch_size=settings.performance.whisper_batch_size,
+                )
                 log.info("[gpu] %d words from %s in %.1fs",
                          len(item.words), item.video.name, time.monotonic() - t0)
             except Exception as e:
@@ -258,12 +273,9 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
 def _run_pipeline(settings: Settings, ctx: DetectionContext,
                   todo: list[Path], done: set[str]) -> list[FileResult]:
     perf = settings.performance
-    transcriber = transcribe.Transcriber(
-        settings.whisper, settings.alignment, batch_size=perf.whisper_batch_size,
-    )
 
     encode_q, gpu_q, post_q, encode_worker, gpu_worker, post_worker, results = (
-        _make_pipeline(settings, ctx, todo, done, transcriber)
+        _make_pipeline(settings, ctx, todo, done)
     )
 
     encode_threads = [
@@ -301,8 +313,6 @@ def _run_pipeline(settings: Settings, ctx: DetectionContext,
         post_q.put(None)
     for t in post_threads:
         t.join()
-
-    transcriber.close()
 
     if interrupted:
         log.warning("Pipeline drained; checkpoint preserved — re-run to resume.")
