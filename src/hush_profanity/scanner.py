@@ -5,7 +5,12 @@ Pipeline:
     encode_q  ->  [N encode workers]  ->  gpu_q  ->  [1 GPU worker]  ->  post_q  ->  [M post workers]
 
     encode workers (CPU): ffmpeg-extract WAV from each video into a private tempdir.
-    GPU worker (GPU):     transcribe WAV with Whisper + wav2vec2 alignment.
+    GPU worker (CPU):     spawn a fresh python subprocess per file that does
+                          the actual GPU work (Whisper transcribe + wav2vec2
+                          alignment) and returns word JSON. Subprocess isolation
+                          is the workaround for ctranslate2's CUDA cleanup bug
+                          (OpenNMT/CTranslate2#1912) which corrupts the heap
+                          after 1-3 in-process model destructions on Windows.
     post workers (CPU):   detect profanity, write EDL + SRT, save checkpoint, delete tempdir.
 
 All three stages run concurrently on different files. At steady state, while the GPU is
@@ -21,18 +26,25 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from queue import Queue
 from typing import Any
 
-from . import audio, edl, profanity, srt, transcribe
+from . import audio, edl, profanity, srt
 from .config import Settings, load_phrase_lines, load_replacements, load_swear_words
 
 log = logging.getLogger(__name__)
+
+
+# Hard ceiling so a wedged subprocess can't block the pipeline forever.
+# Most files transcribe in 2-4 minutes; alignment adds ~30s. 30 min is generous.
+SUBPROCESS_TIMEOUT_SECONDS = 30 * 60
 
 
 @dataclass
@@ -100,6 +112,64 @@ def _save_checkpoint(path: Path, done: set[str]) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({"done": sorted(done)}, f, indent=2)
     tmp.replace(path)
+
+
+def _run_subprocess_transcribe(wav_path: Path, settings: Settings):
+    """Spawn a fresh python subprocess to transcribe one WAV; return Word list.
+
+    The subprocess loads its own WhisperModel + alignment model, transcribes,
+    writes word JSON to a temp file, and exits. Process exit lets the OS clean
+    up the CUDA context fully — sidestepping the in-process cleanup bug that
+    crashes ctranslate2 after 1-3 model destructions in the same Python.
+
+    Raises subprocess.TimeoutExpired if the subprocess hangs past the ceiling.
+    Raises RuntimeError if it exits non-zero (caller logs + skips the file).
+    """
+    # transcribe.Word is the canonical type the rest of the pipeline expects;
+    # import here to avoid circulars at module load.
+    from .transcribe import Word
+
+    cfg = {
+        "wav_path": str(wav_path),
+        "whisper": asdict(settings.whisper),
+        "alignment": asdict(settings.alignment),
+        "batch_size": settings.performance.whisper_batch_size,
+    }
+    with tempfile.TemporaryDirectory(prefix="hush-ipc-") as ipc_dir:
+        ipc = Path(ipc_dir)
+        cfg_path = ipc / "config.json"
+        out_path = ipc / "words.json"
+        cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
+
+        # sys.executable is the venv python that imported this module — same
+        # interpreter, same packages, no PATH ambiguity.
+        cmd = [
+            sys.executable,
+            "-m", "hush_profanity._transcribe_worker",
+            str(cfg_path),
+            str(out_path),
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=SUBPROCESS_TIMEOUT_SECONDS,
+        )
+        # Surface worker stderr (info + warnings) into the parent log.
+        if proc.stderr:
+            for line in proc.stderr.rstrip().splitlines():
+                log.info("  %s", line)
+        if proc.returncode != 0:
+            raise RuntimeError(
+                f"transcribe worker exited {proc.returncode} for {wav_path.name}; "
+                f"see worker stderr above for details"
+            )
+        if not out_path.exists():
+            raise RuntimeError(
+                f"transcribe worker exited 0 but produced no output file for {wav_path.name}"
+            )
+        records = json.loads(out_path.read_text(encoding="utf-8"))
+    return [Word(**r) for r in records]
 
 
 def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -> int:
@@ -211,19 +281,18 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                 post_q.put(item)
                 continue
             try:
-                log.info("[gpu] transcribing %s (loading fresh model)", item.video.name)
+                log.info("[gpu] transcribing %s (subprocess)", item.video.name)
                 t0 = time.monotonic()
-                # Fresh WhisperModel + alignment model per file. transcribe_to_words
-                # constructs a Transcriber, runs it, and tears it down — clearing any
-                # accumulated GPU state that would otherwise risk wedging.
-                item.words = transcribe.transcribe_to_words(
-                    item.wav_path,
-                    settings.whisper,
-                    settings.alignment,
-                    batch_size=settings.performance.whisper_batch_size,
+                item.words = _run_subprocess_transcribe(
+                    wav_path=item.wav_path,
+                    settings=settings,
                 )
                 log.info("[gpu] %d words from %s in %.1fs",
                          len(item.words), item.video.name, time.monotonic() - t0)
+            except subprocess.TimeoutExpired:
+                log.error("[gpu] timed out (>%ds) on %s — skipping",
+                          SUBPROCESS_TIMEOUT_SECONDS, item.video)
+                item.error = f"transcribe-timeout: subprocess exceeded {SUBPROCESS_TIMEOUT_SECONDS}s"
             except Exception as e:
                 log.exception("[gpu] failed: %s", item.video)
                 item.error = f"transcribe: {e}"

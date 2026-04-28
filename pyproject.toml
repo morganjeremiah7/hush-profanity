@@ -24,10 +24,12 @@ classifiers = [
     "Topic :: Multimedia :: Video",
 ]
 dependencies = [
-    "faster-whisper>=1.0.3",
-    "whisperx>=3.1.5",
-    "torch>=2.1.0",
-    "torchaudio>=2.1.0",
+    "faster-whisper>=1.2.1",
+    # whisperx>=3.8 pulls ctranslate2 4.7+ which uses cuDNN 9 natively
+    # (avoids the cuDNN 8/9 dual-load + crash pattern in ctranslate2 < 4.5).
+    "whisperx>=3.8.5",
+    "torch>=2.8.0",
+    "torchaudio>=2.8.0",
     "ffmpeg-python>=0.2.0",
     "flask>=3.0.0",
     "tomli>=2.0.1; python_version<'3.11'",

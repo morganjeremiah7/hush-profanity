@@ -14,7 +14,8 @@
       - ffmpeg.exe on PATH (winget install Gyan.FFmpeg)
 
 .PARAMETER Cuda
-    Torch CUDA build to install: cu121 (default) or cu118.
+    Torch CUDA build to install: cu126 (default), cu124, or cu121.
+    cu126 is required for ctranslate2 4.6+ which uses cuDNN 9 natively.
 
 .PARAMETER Recreate
     Delete and recreate the venv from scratch.
@@ -24,7 +25,7 @@
 #>
 
 param(
-    [string]$Cuda = "cu121",
+    [string]$Cuda = "cu126",
     [switch]$Recreate
 )
 
@@ -88,22 +89,29 @@ Write-Step "Upgrading pip + wheel + setuptools"
 & $VenvPython -m pip install --upgrade pip wheel "setuptools<81"
 
 # ---- Torch (must come BEFORE pip install of the package) --------------------
+# torch 2.8.x+cu126 is what whisperx>=3.8 expects. cu126 also matches the cuDNN 9
+# that ctranslate2 4.6+ uses natively, so we don't need to dual-load cuDNN.
 Write-Step "Installing PyTorch ($Cuda)"
-& $VenvPip install --index-url "https://download.pytorch.org/whl/$Cuda" torch torchaudio
+& $VenvPip install --index-url "https://download.pytorch.org/whl/$Cuda" "torch==2.8.0" "torchaudio==2.8.0"
 if ($LASTEXITCODE -ne 0) { throw "torch install failed" }
 
-# ---- cuDNN 8 + cuBLAS for ctranslate2 (faster-whisper backend) --------------
-# PyTorch bundles its own cuDNN inside torch\lib but ctranslate2 can't find them.
-# ctranslate2 4.4.x specifically needs cuDNN 8 (not 9) — the DLL it looks for is
-# cudnn_ops_infer64_8.dll. ~1.3 GB total but unavoidable.
-Write-Step "Installing cuDNN 8 + cuBLAS for ctranslate2 (~1.3 GB)"
-& $VenvPip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==8.9.7.29"
-if ($LASTEXITCODE -ne 0) { throw "cuDNN/cuBLAS install failed" }
+# ---- cuBLAS for ctranslate2 -------------------------------------------------
+# PyTorch bundles its own cuDNN 9 inside torch\lib; with ctranslate2 4.6+ that's
+# now the only cuDNN needed. cuBLAS still has to come from the nvidia-* pip pkg
+# so ctranslate2 can find it on the DLL search path. ~550 MB.
+Write-Step "Installing cuBLAS for ctranslate2"
+& $VenvPip install "nvidia-cublas-cu12"
+if ($LASTEXITCODE -ne 0) { throw "cuBLAS install failed" }
 
 # ---- Project deps ------------------------------------------------------------
+# whisperx>=3.8 pulls ctranslate2 4.7+ (uses cuDNN 9, no longer needs the
+# old cuDNN 8 dance). torch is already installed, but we make the constraints
+# explicit to avoid pip resolving down to the CPU build.
 Write-Step "Installing project dependencies"
 & $VenvPip install -e .
 if ($LASTEXITCODE -ne 0) { throw "project install failed" }
+& $VenvPip install --upgrade "whisperx>=3.8.5"
+if ($LASTEXITCODE -ne 0) { throw "whisperx install failed" }
 
 # ---- Sanity check ------------------------------------------------------------
 Write-Step "Verifying CUDA"
