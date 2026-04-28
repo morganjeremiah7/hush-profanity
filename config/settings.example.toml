@@ -100,6 +100,12 @@ default_action = 0
 # How many ffmpeg processes run in parallel pre-encoding the next batch of WAVs.
 # Default 2 keeps the GPU fed without saturating disk I/O on a network share.
 encode_workers = 2
+# How many GPU worker threads run concurrently. Each one spawns a fresh
+# subprocess per file (model loaded inside the subprocess). 1 = serial; 2 =
+# two files transcribed at once on the same GPU (~1.5-1.8x faster on a 24GB
+# card; needs ~14-22 GB peak depending on compute_type). Higher rarely helps.
+# If you OOM, drop to 1 OR switch compute_type to int8_float16 to save VRAM.
+gpu_workers = 1
 # How many threads write EDL/SRT files in parallel after Whisper finishes.
 # These are CPU+I/O light; 2 is plenty.
 post_workers = 2

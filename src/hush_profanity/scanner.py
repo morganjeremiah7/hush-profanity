@@ -229,7 +229,9 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
     """
     perf = settings.performance
     encode_q: Queue = Queue(maxsize=perf.encode_workers + 1)
-    gpu_q: Queue = Queue(maxsize=2)
+    # gpu_q must hold at least one item per GPU worker (so workers don't starve)
+    # plus a small lookahead so the encoders don't block.
+    gpu_q: Queue = Queue(maxsize=max(2, perf.gpu_workers + 1))
     post_q: Queue = Queue(maxsize=perf.post_workers + 2)
 
     results: list[FileResult] = []
@@ -351,7 +353,10 @@ def _run_pipeline(settings: Settings, ctx: DetectionContext,
         threading.Thread(target=encode_worker, name=f"encode-{i}", daemon=True)
         for i in range(perf.encode_workers)
     ]
-    gpu_thread = threading.Thread(target=gpu_worker, name="gpu", daemon=True)
+    gpu_threads = [
+        threading.Thread(target=gpu_worker, name=f"gpu-{i}", daemon=True)
+        for i in range(perf.gpu_workers)
+    ]
     post_threads = [
         threading.Thread(target=post_worker, name=f"post-{i}", daemon=True)
         for i in range(perf.post_workers)
@@ -359,7 +364,8 @@ def _run_pipeline(settings: Settings, ctx: DetectionContext,
 
     for t in encode_threads:
         t.start()
-    gpu_thread.start()
+    for t in gpu_threads:
+        t.start()
     for t in post_threads:
         t.start()
 
@@ -376,8 +382,10 @@ def _run_pipeline(settings: Settings, ctx: DetectionContext,
         encode_q.put(None)
     for t in encode_threads:
         t.join()
-    gpu_q.put(None)
-    gpu_thread.join()
+    for _ in range(perf.gpu_workers):
+        gpu_q.put(None)
+    for t in gpu_threads:
+        t.join()
     for _ in range(perf.post_workers):
         post_q.put(None)
     for t in post_threads:
@@ -424,9 +432,9 @@ def run(settings: Settings) -> list[FileResult]:
         log.info("Nothing to do — all videos already in checkpoint.")
         return []
 
-    log.info("Pipeline: %d encode workers, 1 GPU worker (batch_size=%d), %d post workers",
+    log.info("Pipeline: %d encode workers, %d GPU worker(s), %d post workers",
              settings.performance.encode_workers,
-             settings.performance.whisper_batch_size,
+             settings.performance.gpu_workers,
              settings.performance.post_workers)
 
     return _run_pipeline(settings, ctx, todo, done)

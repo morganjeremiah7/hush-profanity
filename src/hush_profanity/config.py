@@ -82,12 +82,18 @@ class WebUiCfg:
 class PerformanceCfg:
     # Number of CPU threads running ffmpeg in parallel, ahead of the GPU.
     encode_workers: int = 2
+    # Number of GPU worker threads. Each spawns a fresh subprocess per file
+    # (model loaded inside the subprocess). 1 = serial transcription (safe).
+    # 2 = two files transcribed concurrently on the same GPU (~1.5-1.8x faster
+    # in our setup; needs ~14-22 GB VRAM at peak depending on compute_type).
+    # Higher values rarely help — diminishing returns from GPU SM contention.
+    gpu_workers: int = 1
     # Number of CPU threads doing post-processing (profanity detection + EDL/SRT writes).
     post_workers: int = 2
-    # batch_size passed to BatchedInferencePipeline. 1 = sequential (no batching).
-    # 16 typically gives 2-3x throughput vs sequential on a 24GB GPU. Larger batches
-    # use more VRAM but plateau quickly. Drop to 8 or 4 if you OOM.
-    whisper_batch_size: int = 16
+    # Ignored under openai-whisper (no batched API). Kept for backwards
+    # compatibility with old settings.toml files; was meaningful for the
+    # faster-whisper engine.
+    whisper_batch_size: int = 1
 
 
 @dataclass
