@@ -14,8 +14,8 @@
       - ffmpeg.exe on PATH (winget install Gyan.FFmpeg)
 
 .PARAMETER Cuda
-    Torch CUDA build to install: cu126 (default), cu124, or cu121.
-    cu126 is required for ctranslate2 4.6+ which uses cuDNN 9 natively.
+    Torch CUDA build to install: cu121 (default — most compatible with
+    whisperx 3.4.x's bundled deps), cu124, or cu126.
 
 .PARAMETER Recreate
     Delete and recreate the venv from scratch.
@@ -25,7 +25,7 @@
 #>
 
 param(
-    [string]$Cuda = "cu126",
+    [string]$Cuda = "cu121",
     [switch]$Recreate
 )
 
@@ -84,34 +84,38 @@ $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 $VenvPip    = Join-Path $VenvDir "Scripts\pip.exe"
 
 Write-Step "Upgrading pip + wheel + setuptools"
-# setuptools 81+ removed pkg_resources, which faster-whisper's ctranslate2 dep
-# still imports at runtime. Pin to <81 until the upstream fix lands.
 & $VenvPython -m pip install --upgrade pip wheel "setuptools<81"
 
 # ---- Torch (must come BEFORE pip install of the package) --------------------
-# torch 2.8.x+cu126 is what whisperx>=3.8 expects. cu126 also matches the cuDNN 9
-# that ctranslate2 4.6+ uses natively, so we don't need to dual-load cuDNN.
+# torch 2.5.1+cu121 is the proven combo for whisperx 3.4.x's wav2vec2 alignment.
+# We use openai-whisper for transcription (PyTorch-only — no ctranslate2), so we
+# don't need ctranslate2's specific cuDNN/cuBLAS dance. Torch's bundled cuDNN
+# is sufficient.
 Write-Step "Installing PyTorch ($Cuda)"
-& $VenvPip install --index-url "https://download.pytorch.org/whl/$Cuda" "torch==2.8.0" "torchaudio==2.8.0"
+& $VenvPip install --index-url "https://download.pytorch.org/whl/$Cuda" "torch==2.5.1" "torchaudio==2.5.1"
 if ($LASTEXITCODE -ne 0) { throw "torch install failed" }
 
-# ---- cuBLAS for ctranslate2 -------------------------------------------------
-# PyTorch bundles its own cuDNN 9 inside torch\lib; with ctranslate2 4.6+ that's
-# now the only cuDNN needed. cuBLAS still has to come from the nvidia-* pip pkg
-# so ctranslate2 can find it on the DLL search path. ~550 MB.
-Write-Step "Installing cuBLAS for ctranslate2"
-& $VenvPip install "nvidia-cublas-cu12"
-if ($LASTEXITCODE -ne 0) { throw "cuBLAS install failed" }
-
 # ---- Project deps ------------------------------------------------------------
-# whisperx>=3.8 pulls ctranslate2 4.7+ (uses cuDNN 9, no longer needs the
-# old cuDNN 8 dance). torch is already installed, but we make the constraints
-# explicit to avoid pip resolving down to the CPU build.
+# openai-whisper (the reference PyTorch impl). We dropped faster-whisper /
+# ctranslate2 because the latter has a long-standing CUDA cleanup crash on
+# Windows that fired across every version we tried. openai-whisper is ~3-4x
+# slower but rock-solid — single CUDA context shared with whisperx alignment.
+# whisperx 3.4.x is the last version that doesn't pull a newer ctranslate2
+# (which we don't want at all). Pin it explicitly.
 Write-Step "Installing project dependencies"
 & $VenvPip install -e .
 if ($LASTEXITCODE -ne 0) { throw "project install failed" }
-& $VenvPip install --upgrade "whisperx>=3.8.5"
-if ($LASTEXITCODE -ne 0) { throw "whisperx install failed" }
+& $VenvPip install "openai-whisper>=20250625" "whisperx>=3.4.5,<3.5"
+if ($LASTEXITCODE -ne 0) { throw "openai-whisper / whisperx install failed" }
+
+# ---- triton-windows for fast DTW kernels ------------------------------------
+# openai-whisper uses Triton to JIT CUDA kernels for word-timestamp DTW. The
+# upstream `triton` package is Linux-only; without `triton-windows` Whisper
+# falls back to a much slower pure-PyTorch DTW. The version must match torch:
+# torch 2.5 -> triton 3.1, torch 2.6 -> triton 3.2, etc.
+Write-Step "Installing triton-windows for word-timestamp speedup"
+& $VenvPip install "triton-windows==3.1.0.post17"
+if ($LASTEXITCODE -ne 0) { Write-Warn "triton-windows install failed; whisper will fall back to slower DTW. Not fatal." }
 
 # ---- Sanity check ------------------------------------------------------------
 Write-Step "Verifying CUDA"

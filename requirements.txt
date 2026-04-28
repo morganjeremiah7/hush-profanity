@@ -2,10 +2,17 @@
 # PyTorch + CUDA wheels are NOT listed here — they must be installed first
 # via the official index URL (see scripts/install-windows.ps1).
 
-faster-whisper>=1.2.1
-# whisperx>=3.8 pulls ctranslate2>=4.7 which uses cuDNN 9 natively
-# (avoids the dual-cuDNN crash pattern in ctranslate2 < 4.5).
-whisperx>=3.8.5
+# openai-whisper (PyTorch reference impl). We moved off faster-whisper because
+# its ctranslate2 backend has a CUDA cleanup crash on Windows that's
+# reproducible across every ct2 version we tried.
+openai-whisper>=20250625
+# whisperx 3.4.x doesn't pull a newer ctranslate2; we use it only for wav2vec2 alignment.
+whisperx>=3.4.5,<3.5
+# triton-windows is the Windows port of Triton (the upstream `triton` package
+# is Linux-only). openai-whisper uses Triton to JIT-compile CUDA kernels for
+# fast word-timestamp DTW; without it, Whisper falls back to a much slower
+# pure-PyTorch DTW. Version must align with the torch we install (torch 2.5 -> 3.1).
+triton-windows==3.1.0.post17 ; sys_platform == "win32"
 ffmpeg-python>=0.2.0
 flask>=3.0.0
 tomli>=2.0.1; python_version<"3.11"

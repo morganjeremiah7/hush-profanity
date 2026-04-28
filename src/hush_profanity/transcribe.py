@@ -1,16 +1,20 @@
-"""Whisper transcription with WhisperX wav2vec2 forced alignment.
+"""Whisper transcription using openai-whisper (the reference PyTorch impl) +
+WhisperX wav2vec2 forced alignment.
 
-Pipeline:
-  1. faster-whisper transcribes the audio (fast, accurate text).
-  2. WhisperX wav2vec2 alignment refines word boundaries to ~20 ms precision.
+Why not faster-whisper / ctranslate2?
+------------------------------------
+ctranslate2 (the C++ inference engine that powers faster-whisper) has a
+long-standing CUDA cleanup bug on Windows that destroys the heap when models
+are torn down (OpenNMT/CTranslate2#1912, faster-whisper#71/#1293). We hit it
+across every version we tried (4.4.0, 4.7.1) and across every workaround
+(int8, no alignment, subprocess isolation). The bug is in the engine itself.
 
-We need tight word boundaries because muting a swear 200 ms late lets the consonant
-through. Whisper's own word timestamps are cross-attention guesses and routinely drift.
+openai-whisper is the reference PyTorch implementation. ~3-4× slower than
+faster-whisper's batched mode but uses only PyTorch's CUDA stack — same one
+WhisperX uses for alignment — so there's only ONE CUDA library in the process.
+No more dual-allocator instability. Tested through the cleanup bug fingerprint.
 
-The Transcriber class loads the Whisper model and the alignment model ONCE and reuses
-them across many files. The previous version reloaded both per file (~10 s overhead),
-which became the dominant cost for large batches once the parallel pipeline removed
-encode and post-processing latency.
+Trade-off accepted by the user: speed for stability.
 """
 from __future__ import annotations
 
@@ -28,16 +32,11 @@ log = logging.getLogger(__name__)
 
 
 def _ensure_cuda_dlls_on_path() -> None:
-    """Make the bundled nvidia-* DLLs discoverable by ctranslate2 on Windows.
-
-    PyTorch bundles its own cuDNN inside torch\\lib and ctypes-loads it directly,
-    so torch is fine. ctranslate2 (the faster-whisper backend) calls plain
-    LoadLibrary and relies on the OS DLL search order. We install the right DLLs
-    via `nvidia-cublas-cu12` + `nvidia-cudnn-cu12` (8.9.7.29) — they land in
-    .venv\\Lib\\site-packages\\nvidia\\<pkg>\\bin. To be findable by both
-    AddDllDirectory-aware loaders AND legacy LoadLibrary, we do both:
-      1. os.add_dll_directory(d)          — for LOAD_LIBRARY_SEARCH_USER_DIRS
-      2. prepend d to os.environ['PATH']  — for legacy LoadLibrary (ctranslate2)
+    """Belt-and-suspenders: add any nvidia-* pip-installed DLL bin dirs to the
+    Windows DLL loader path. With openai-whisper this is mostly redundant —
+    PyTorch ships its own cuDNN inside torch\\lib and ctypes-loads it directly.
+    We keep the helper for parity with old envs that may still have nvidia-*
+    packages lying around.
     """
     if sys.platform != "win32":
         return
@@ -74,42 +73,34 @@ class Word:
 
 
 class Transcriber:
-    """Loads Whisper + alignment models once; transcribes many files.
+    """Loads openai-whisper + alignment models once; transcribes many files.
 
-    Not thread-safe — only ONE thread should call .transcribe() at a time. The
-    parallel pipeline owns a single Transcriber that lives on the GPU worker thread.
+    Not thread-safe — only ONE thread should call .transcribe() at a time.
     """
 
     def __init__(self, whisper_cfg: WhisperCfg, alignment_cfg: AlignmentCfg, batch_size: int = 1) -> None:
+        # batch_size is kept on the signature for API compatibility with the
+        # earlier faster-whisper Transcriber. openai-whisper has no equivalent
+        # batching knob (it processes the whole file in one .transcribe() call).
         self.whisper_cfg = whisper_cfg
         self.alignment_cfg = alignment_cfg
         self.batch_size = max(1, int(batch_size))
         self._model = None
-        self._batched = None
         self._align_model = None
         self._align_metadata = None
-        self._align_lang: str | None = None
 
     def load(self) -> None:
-        """Load models if not already loaded. Idempotent."""
         if self._model is not None:
             return
 
-        from faster_whisper import WhisperModel
+        import whisper  # openai-whisper
 
-        log.info("Loading Whisper model %s on %s (%s)",
-                 self.whisper_cfg.model, self.whisper_cfg.device, self.whisper_cfg.compute_type)
-        self._model = WhisperModel(
+        log.info("Loading openai-whisper model %s on %s",
+                 self.whisper_cfg.model, self.whisper_cfg.device)
+        self._model = whisper.load_model(
             self.whisper_cfg.model,
             device=self.whisper_cfg.device,
-            device_index=self.whisper_cfg.device_index,
-            compute_type=self.whisper_cfg.compute_type,
         )
-
-        if self.batch_size > 1:
-            from faster_whisper import BatchedInferencePipeline
-            log.info("Wrapping in BatchedInferencePipeline (batch_size=%d)", self.batch_size)
-            self._batched = BatchedInferencePipeline(model=self._model)
 
         if self.alignment_cfg.enabled:
             try:
@@ -119,52 +110,30 @@ class Transcriber:
                 self._align_model, self._align_metadata = whisperx.load_align_model(
                     language_code=lang, device=self.whisper_cfg.device,
                 )
-                self._align_lang = lang
             except Exception as e:
                 log.warning("Alignment model load failed (%s) — alignment will be skipped", e)
                 self._align_model = None
 
     def transcribe(self, audio_wav: Path) -> list[Word]:
-        """Transcribe one file, return per-word records with precise timestamps."""
         self.load()
 
-        if self._batched is not None:
-            log.debug("Transcribing %s (batched, batch_size=%d)", audio_wav.name, self.batch_size)
-            segments_iter, info = self._batched.transcribe(
-                str(audio_wav),
-                batch_size=self.batch_size,
-                language=self.whisper_cfg.language,
-                vad_filter=self.whisper_cfg.vad_filter,
-                word_timestamps=True,
-            )
-        else:
-            log.debug("Transcribing %s (sequential)", audio_wav.name)
-            segments_iter, info = self._model.transcribe(
-                str(audio_wav),
-                language=self.whisper_cfg.language,
-                beam_size=self.whisper_cfg.beam_size,
-                vad_filter=self.whisper_cfg.vad_filter,
-                word_timestamps=True,
-                condition_on_previous_text=False,  # sequential mode: avoid hallucination loops
-            )
+        log.debug("Transcribing %s", audio_wav.name)
+        # openai-whisper.transcribe(): processes the whole file synchronously
+        # and returns a dict {"text", "segments", "language"}.
+        result = self._model.transcribe(
+            str(audio_wav),
+            language=self.whisper_cfg.language,
+            beam_size=self.whisper_cfg.beam_size,
+            word_timestamps=True,
+            condition_on_previous_text=False,  # avoids hallucination loops
+            fp16=(self.whisper_cfg.compute_type in ("float16", "int8_float16")),
+            # verbose=None: suppress both per-segment text dumps AND the tqdm
+            # progress bar. False would keep the progress bar polluting our log.
+            verbose=None,
+        )
+        log.info("Detected language: %s", result.get("language", "?"))
 
-        raw_segments = []
-        for seg in segments_iter:
-            words = []
-            if seg.words:
-                for w in seg.words:
-                    words.append({
-                        "word": w.word,
-                        "start": float(w.start) if w.start is not None else float(seg.start),
-                        "end": float(w.end) if w.end is not None else float(seg.end),
-                        "probability": float(w.probability) if w.probability is not None else 1.0,
-                    })
-            raw_segments.append({
-                "start": float(seg.start),
-                "end": float(seg.end),
-                "text": seg.text,
-                "words": words,
-            })
+        raw_segments = result.get("segments", [])
 
         if self._align_model is None:
             return _flatten_words(raw_segments)
@@ -188,7 +157,6 @@ class Transcriber:
     def close(self) -> None:
         """Free GPU memory. Optional — called automatically on process exit."""
         self._model = None
-        self._batched = None
         self._align_model = None
         self._align_metadata = None
         gc.collect()
@@ -202,7 +170,7 @@ class Transcriber:
 
 def transcribe_to_words(audio_wav: Path, whisper_cfg: WhisperCfg,
                         alignment_cfg: AlignmentCfg, batch_size: int = 1) -> list[Word]:
-    """Single-shot helper — for one-off use. Reloads models every call (slow).
+    """Single-shot helper — for one-off use. Reloads models every call.
 
     Prefer instantiating Transcriber once and reusing it for batches.
     """
@@ -213,10 +181,12 @@ def transcribe_to_words(audio_wav: Path, whisper_cfg: WhisperCfg,
         t.close()
 
 
-def _flatten_words(segments: list[dict]) -> list[Word]:
+def _flatten_words(segments) -> list[Word]:
+    """Convert openai-whisper or whisperx segments into a flat list of Word."""
     out: list[Word] = []
     for seg in segments:
-        for w in seg.get("words") or []:
+        # Both openai-whisper and whisperx yield dicts with these keys.
+        for w in (seg.get("words") or []) if isinstance(seg, dict) else []:
             text = (w.get("word") or "").strip()
             start = w.get("start")
             end = w.get("end")

@@ -24,12 +24,21 @@ classifiers = [
     "Topic :: Multimedia :: Video",
 ]
 dependencies = [
-    "faster-whisper>=1.2.1",
-    # whisperx>=3.8 pulls ctranslate2 4.7+ which uses cuDNN 9 natively
-    # (avoids the cuDNN 8/9 dual-load + crash pattern in ctranslate2 < 4.5).
-    "whisperx>=3.8.5",
-    "torch>=2.8.0",
-    "torchaudio>=2.8.0",
+    # openai-whisper (the reference PyTorch impl). We moved off faster-whisper /
+    # ctranslate2 because the latter has a long-standing CUDA cleanup crash on
+    # Windows that's reproducible across ctranslate2 4.4 → 4.7. openai-whisper
+    # is ~3-4× slower but pure PyTorch, single CUDA context, rock-solid.
+    "openai-whisper>=20250625",
+    # whisperx 3.4.x is the last version that doesn't pull a newer ctranslate2.
+    # We use whisperx solely for wav2vec2 alignment; transcription is openai-whisper.
+    "whisperx>=3.4.5,<3.5",
+    "torch>=2.5.1",
+    "torchaudio>=2.5.1",
+    # triton-windows: Windows port of Triton. openai-whisper uses Triton-JIT'd
+    # CUDA kernels for fast word-timestamp DTW. Without this, whisper falls
+    # back to a slower pure-PyTorch DTW. Version is paired with torch
+    # (torch 2.5 -> triton 3.1).
+    'triton-windows==3.1.0.post17 ; sys_platform == "win32"',
     "ffmpeg-python>=0.2.0",
     "flask>=3.0.0",
     "tomli>=2.0.1; python_version<'3.11'",

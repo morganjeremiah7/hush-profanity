@@ -18,9 +18,10 @@ venv/
 env/
 ENV/
 
-# IDE
+# IDE / agent tools
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~

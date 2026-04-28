@@ -19,8 +19,12 @@ skip_if_processed = true
 # Model size: tiny, base, small, medium, large-v2, large-v3, large-v3-turbo, distil-large-v3
 # large-v3 is the most accurate; on a 24 GB GPU it runs comfortably in float16.
 model = "large-v3"
-# Whisper compute_type: float16 (best on Ampere+ GPUs like the 3090),
-# int8_float16 (~half VRAM, slight accuracy loss), int8 (CPU or low-VRAM).
+# Compute precision for the Whisper model. openai-whisper supports:
+#   "float16" — full precision on Ampere+ GPUs (3090 etc.). Recommended.
+#   "float32" — slower, more VRAM, slightly more accurate. Rarely needed.
+#   "int8" / "int8_float16" — accepted but mapped to fp16; openai-whisper
+#                             doesn't have true quantized inference like
+#                             faster-whisper did.
 compute_type = "float16"
 # "cuda" for GPU, "cpu" for CPU-only.
 device = "cuda"
@@ -30,7 +34,9 @@ device_index = 0
 beam_size = 5
 # Language hint. "en" disables language detection (faster, more accurate for English content).
 language = "en"
-# Enable Silero VAD to skip silence/music. Strongly recommended — prevents hallucinated profanity.
+# Kept for backwards compatibility with old settings.toml files. openai-whisper
+# does not have an integrated VAD; it relies on its own no_speech_threshold
+# (currently default 0.6). Value is ignored — the previous engine had Silero VAD.
 vad_filter = true
 # When .mkv has multiple audio tracks, prefer this language (ISO 639-1 or 639-2 code).
 audio_language = "eng"
@@ -97,9 +103,8 @@ encode_workers = 2
 # How many threads write EDL/SRT files in parallel after Whisper finishes.
 # These are CPU+I/O light; 2 is plenty.
 post_workers = 2
-# Whisper batch size — how many VAD-detected speech chunks process in parallel
-# inside the model. 16 typically gives 2-3x speedup vs sequential on a 24GB GPU
-# with no accuracy change. Drop to 8 or 4 if you see CUDA OOM.
-# Set to 1 to disable batching (uses the original sequential path with
-# condition_on_previous_text=False — the validated v0.1 behavior).
-whisper_batch_size = 16
+# Kept for backwards compatibility with old settings.toml files. openai-whisper
+# does not expose a batch-size knob (the engine processes the whole file in one
+# call internally). Value is ignored. Was meaningful when the engine was
+# faster-whisper / ctranslate2.
+whisper_batch_size = 1
