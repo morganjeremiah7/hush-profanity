@@ -17,7 +17,11 @@ skip_if_processed = true
 
 [whisper]
 # Model size: tiny, base, small, medium, large-v2, large-v3, large-v3-turbo, distil-large-v3
-# large-v3 is the most accurate; on a 24 GB GPU it runs comfortably in float16.
+# large-v3 is the most accurate; medium is a good fallback for 8-11 GB GPUs.
+# The Windows installer auto-detects your GPU and writes the right value here:
+#   24 GB+ → large-v3 (with gpu_workers = 2 in [performance])
+#   12-23 GB → large-v3
+#    8-11 GB → medium
 model = "large-v3"
 # Compute precision for the Whisper model. openai-whisper supports:
 #   "float16" — full precision on Ampere+ GPUs (3090 etc.). Recommended.

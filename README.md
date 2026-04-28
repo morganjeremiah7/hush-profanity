@@ -50,8 +50,20 @@ Players that **do not** honor EDL natively:
 
 - **Windows 10/11** (Linux supported via the same Python package, but launchers/install script are Windows-first)
 - **Python 3.10, 3.11, or 3.12**
-- **NVIDIA GPU** with ≥8 GB VRAM and a CUDA 12.x-capable driver. Tested on RTX 3090 (24 GB). Will fall back to CPU if no GPU is available, but expect that to be ~50× slower.
-- **ffmpeg** on PATH. Easiest install: `winget install Gyan.FFmpeg`, then open a fresh terminal.
+- **NVIDIA GPU** with ≥8 GB VRAM and a CUDA 12.x-capable driver
+- **ffmpeg** on PATH. Easiest install: `winget install Gyan.FFmpeg`, then open a fresh terminal
+
+### GPU tiers (the installer auto-detects your VRAM and picks the right defaults)
+
+| VRAM | Model auto-picked | Concurrent files | What you get |
+|---|---|---|---|
+| **24 GB+** (3090, 4090, 5090, A6000) | `large-v3` | 2 | Best accuracy + speed boost from running two files in parallel on the GPU |
+| **12-23 GB** (3060 12GB, 4070, 4070 Ti Super 16GB, etc.) | `large-v3` | 1 | Best accuracy, single-file pace |
+| **8-11 GB** (3060 8GB, 4060, 4060 Ti 8GB, etc.) | `medium` | 1 | Slightly lower transcription accuracy but the same precise EDL timestamps from wav2vec2 alignment; safely within VRAM |
+| **<8 GB** | not officially supported | 1 | Will likely OOM on real content; install proceeds with conservative defaults but no guarantees |
+| **No GPU / CPU only** | — | — | Will run, but ~50× slower than even the slowest GPU tier; not recommended for batch use |
+
+The installer reads your GPU's VRAM at install time and writes the right `model` and `gpu_workers` values into `config/settings.toml`. You can override these manually after install.
 
 ## Install (Windows)
 

@@ -117,23 +117,66 @@ Write-Step "Installing triton-windows for word-timestamp speedup"
 & $VenvPip install "triton-windows==3.1.0.post17"
 if ($LASTEXITCODE -ne 0) { Write-Warn "triton-windows install failed; whisper will fall back to slower DTW. Not fatal." }
 
-# ---- Sanity check ------------------------------------------------------------
-Write-Step "Verifying CUDA"
-$cudaCheck = @"
-import torch
-print('torch:', torch.__version__)
-print('cuda available:', torch.cuda.is_available())
+# ---- Sanity check + VRAM probe ---------------------------------------------
+Write-Step "Verifying CUDA + probing GPU VRAM"
+# Single-quoted here-string so PowerShell does not interpolate `$` or treat `"` specially.
+$probe = @'
+import json, torch
+out = {'torch': torch.__version__, 'cuda_available': torch.cuda.is_available()}
 if torch.cuda.is_available():
-    print('device:', torch.cuda.get_device_name(0))
-"@
-& $VenvPython -c $cudaCheck
+    out['device_name'] = torch.cuda.get_device_name(0)
+    out['vram_mb'] = int(torch.cuda.get_device_properties(0).total_memory // (1024 * 1024))
+else:
+    out['device_name'] = None
+    out['vram_mb'] = 0
+print(json.dumps(out))
+'@
+$probeJson = & $VenvPython -c $probe
+$gpu = $probeJson | ConvertFrom-Json
+Write-Host "    torch: $($gpu.torch)"
+Write-Host "    cuda available: $($gpu.cuda_available)"
+if ($gpu.cuda_available) {
+    Write-Host "    device: $($gpu.device_name)"
+    Write-Host "    VRAM: $($gpu.vram_mb) MiB"
+}
+
+# ---- Choose tier based on VRAM ---------------------------------------------
+# Tiers (after openai-whisper engine swap):
+#   24+ GB → large-v3 + gpu_workers=2  (3090, 4090, 5090, A6000, etc.)
+#   12-23 GB → large-v3 + gpu_workers=1 (3060 12GB, 4070, 4070 Ti Super 16GB, etc.)
+#    8-11 GB → medium  + gpu_workers=1 (3060 8GB, 4060, 4060 Ti 8GB)
+#       <8 GB → warn, but proceed with medium + 1 worker
+$tierModel = "large-v3"
+$tierGpuWorkers = 1
+$tierLabel = "default"
+if ($gpu.cuda_available) {
+    if ($gpu.vram_mb -ge 24000) {
+        $tierModel = "large-v3"; $tierGpuWorkers = 2; $tierLabel = "high (24GB+: large-v3 + 2 workers)"
+    } elseif ($gpu.vram_mb -ge 12000) {
+        $tierModel = "large-v3"; $tierGpuWorkers = 1; $tierLabel = "mid (12-23GB: large-v3 + 1 worker)"
+    } elseif ($gpu.vram_mb -ge 8000) {
+        $tierModel = "medium"; $tierGpuWorkers = 1; $tierLabel = "low (8-11GB: medium model + 1 worker)"
+    } else {
+        Write-Warn "GPU has only $($gpu.vram_mb) MiB VRAM. Minimum recommended is 8GB."
+        Write-Warn "Continuing with conservative defaults; expect slow performance and potential OOMs."
+        $tierModel = "medium"; $tierGpuWorkers = 1; $tierLabel = "below-minimum"
+    }
+}
+Write-Host "    -> tier: $tierLabel"
 
 # ---- Settings ---------------------------------------------------------------
 $Example = Join-Path $ProjectRoot "config\settings.example.toml"
 $Settings = Join-Path $ProjectRoot "config\settings.toml"
 if (-not (Test-Path $Settings)) {
-    Write-Step "Creating config\settings.toml from example (edit it before running)"
-    Copy-Item $Example $Settings
+    Write-Step "Creating config\settings.toml (auto-tuned for your GPU)"
+    $content = Get-Content $Example -Raw
+    # Patch the model line. The example currently has model = "large-v3"; replace
+    # the first occurrence so we don't touch the comment that lists model options.
+    $content = [regex]::Replace($content, '(?m)^model = "large-v3"\s*$', "model = `"$tierModel`"")
+    $content = [regex]::Replace($content, '(?m)^gpu_workers = 1\s*$', "gpu_workers = $tierGpuWorkers")
+    Set-Content -Path $Settings -Value $content -NoNewline
+    Write-Host "    model = $tierModel"
+    Write-Host "    gpu_workers = $tierGpuWorkers"
 }
 
 Write-Host ""
