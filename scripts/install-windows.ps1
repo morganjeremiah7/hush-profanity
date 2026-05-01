@@ -187,6 +187,15 @@ if (-not (Test-Path $Settings)) {
 
 Write-Host ""
 Write-Host "Setup complete." -ForegroundColor Green
-Write-Host "  Edit:  config\settings.toml" -ForegroundColor Green
-Write-Host "  Run:   windows\scan.bat        (transcribe + write EDL/SRT)" -ForegroundColor Green
-Write-Host "  Run:   windows\manual-skip.bat (web UI for marking skip scenes)" -ForegroundColor Green
+Write-Host ""
+Write-Host "Next steps:" -ForegroundColor Green
+Write-Host "  1. Run:   windows\manual-skip.bat" -ForegroundColor Green
+Write-Host "     -> opens http://127.0.0.1:8765/ in your browser" -ForegroundColor Green
+Write-Host "  2. Click the gear (Settings) in the top-right." -ForegroundColor Green
+Write-Host "  3. Add one or more folder paths under 'Roots' (e.g. D:\Movies, \\NAS\Media\TV)" -ForegroundColor Green
+Write-Host "     and click Save. Everything else is already auto-tuned for your GPU." -ForegroundColor Green
+Write-Host "  4. Run:   windows\scan.bat" -ForegroundColor Green
+Write-Host "     -> walks your library and writes <video>.edl + <video>.srt sidecars." -ForegroundColor Green
+Write-Host ""
+Write-Host "(You can also edit config\settings.toml by hand if you prefer; it's documented" -ForegroundColor Gray
+Write-Host " inline. config\settings.example.toml is the full reference template.)" -ForegroundColor Gray

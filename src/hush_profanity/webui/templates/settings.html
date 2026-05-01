@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Settings — hush-profanity</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+    <a href="/" class="back">&larr; library</a>
+    <h1>Settings</h1>
+</header>
+
+<main class="settings">
+    <p class="muted">
+        Edit the keys most users care about. Full reference (every key, with comments) lives in
+        <code>config\settings.example.toml</code>. Changes save to <code>config\settings.toml</code>.
+        Some changes (gpu_workers, port) only take effect on the next scan or web-UI restart.
+    </p>
+
+    <form id="settings-form" autocomplete="off">
+
+        <fieldset>
+            <legend>Library</legend>
+            <label class="full">
+                <span>Roots <small class="muted">— one folder per line; the scanner walks each recursively</small></span>
+                <textarea id="library__roots" rows="6" spellcheck="false" placeholder="C:\Users\you\Videos&#10;D:\Movies&#10;\\NAS\Media\TV"></textarea>
+                <div id="roots-status" class="path-status"></div>
+            </label>
+            <label class="full">
+                <span>Video extensions <small class="muted">— one per line, leading dot</small></span>
+                <textarea id="library__extensions" rows="3" spellcheck="false" placeholder=".mp4&#10;.mkv&#10;.avi"></textarea>
+            </label>
+            <label class="inline">
+                <input type="checkbox" id="library__skip_if_processed">
+                <span>Skip files that already have an auto EDL section</span>
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Whisper (transcription)</legend>
+            <label class="inline">
+                <span>Model</span>
+                <select id="whisper__model"></select>
+            </label>
+            <label class="inline">
+                <span>Compute precision</span>
+                <select id="whisper__compute_type"></select>
+            </label>
+            <label class="inline">
+                <span>Audio language <small class="muted">— ISO 639-1/2, used to pick the right .mkv track</small></span>
+                <input type="text" id="whisper__audio_language" maxlength="8" style="width:6em">
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Alignment</legend>
+            <label class="inline">
+                <input type="checkbox" id="alignment__enabled">
+                <span>WhisperX wav2vec2 forced alignment <small class="muted">— recommended for ±20 ms timestamps</small></span>
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>EDL output</legend>
+            <label class="inline">
+                <span>Profanity action</span>
+                <select id="edl__profanity_action">
+                    <option value="1">1 — mute</option>
+                    <option value="0">0 — cut entirely</option>
+                </select>
+            </label>
+            <label class="inline">
+                <span>Padding (s) around each mute</span>
+                <input type="number" id="edl__padding_seconds" step="0.01" min="0" max="2" style="width:6em">
+            </label>
+            <label class="inline">
+                <span>Merge mutes within (s) of each other</span>
+                <input type="number" id="edl__merge_gap_seconds" step="0.1" min="0" max="30" style="width:6em">
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Performance</legend>
+            <label class="inline">
+                <span>GPU workers <small class="muted">— set by installer based on detected VRAM; 1 for &lt;24 GB, 2 for ≥24 GB</small></span>
+                <input type="number" id="performance__gpu_workers" min="1" max="4" step="1" style="width:5em">
+            </label>
+        </fieldset>
+
+        <fieldset>
+            <legend>Web UI</legend>
+            <label class="inline">
+                <span>HTTP port <small class="muted">— takes effect on next restart</small></span>
+                <input type="number" id="webui__port" min="1024" max="65535" style="width:7em">
+            </label>
+            <label class="inline">
+                <span>Default action for manual entries</span>
+                <select id="webui__default_action">
+                    <option value="0">0 — cut (skip the segment)</option>
+                    <option value="1">1 — mute</option>
+                </select>
+            </label>
+        </fieldset>
+
+        <div class="form-actions">
+            <button type="submit" class="primary">Save</button>
+            <button type="button" id="reload-btn">Reload from disk</button>
+            <span id="form-status" class="muted"></span>
+        </div>
+
+        <div id="form-errors" class="errors" hidden></div>
+    </form>
+</main>
+
+<script src="/static/settings.js"></script>
+</body>
+</html>

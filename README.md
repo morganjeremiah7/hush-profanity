@@ -75,9 +75,17 @@ cd hush-profanity
 windows\install.bat
 ```
 
-The installer creates a `.venv\` next to the project, installs PyTorch with the CUDA 12.1 wheel, installs the rest of the dependencies in editable mode, and copies `config\settings.example.toml` to `config\settings.toml` if it doesn't exist.
+The installer creates a `.venv\` next to the project, installs PyTorch with the CUDA 12.1 wheel, installs the rest of the dependencies in editable mode, probes your GPU's VRAM, and writes a `config\settings.toml` with auto-tuned `model` + `gpu_workers` values. Everything else is filled in with sensible defaults.
 
-After install, **edit `config\settings.toml`** — at minimum, set `[library].roots` to point at your video folders.
+After install, you only need to point hush-profanity at your video folders. Easiest path:
+
+```cmd
+windows\manual-skip.bat
+```
+
+This opens the web UI at `http://127.0.0.1:8765/`. Click the **⚙ Settings** link in the top-right, paste one or more folder paths into **Roots** (one per line, e.g. `D:\Movies` or `\\NAS\Media\TV`), and click **Save**. The page validates that each path is reachable from this machine and shows a green check next to each valid root.
+
+You can also edit `config\settings.toml` by hand if you'd rather — the example template at `config\settings.example.toml` is the full reference and explains every key inline.
 
 ## Usage
 

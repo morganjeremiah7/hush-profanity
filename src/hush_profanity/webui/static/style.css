@@ -159,3 +159,84 @@ kbd {
 }
 .toast.error { border-left-color: var(--bad); }
 .toast.ok    { border-left-color: var(--good); }
+
+/* Header nav (right-aligned settings link) */
+header { position: relative; }
+.header-nav {
+    margin-left: auto;
+}
+.header-nav a {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: .9rem;
+}
+.header-nav a:hover { text-decoration: underline; }
+
+/* Settings page */
+.settings { max-width: 800px; }
+.settings fieldset {
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1rem 1.25rem 1.25rem 1.25rem;
+    margin: 1rem 0;
+    background: var(--panel);
+}
+.settings legend {
+    padding: 0 .5rem;
+    color: var(--muted);
+    font-size: .85rem;
+    text-transform: uppercase;
+    letter-spacing: .05em;
+}
+.settings label {
+    display: flex;
+    margin: .6rem 0;
+    align-items: center;
+    gap: .75rem;
+}
+.settings label.full {
+    flex-direction: column;
+    align-items: stretch;
+    gap: .35rem;
+}
+.settings label.inline span { flex: 0 0 auto; min-width: 14rem; }
+.settings input[type="text"],
+.settings input[type="number"],
+.settings select,
+.settings textarea {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: .35rem .5rem;
+    font: inherit;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+.settings textarea {
+    width: 100%;
+    resize: vertical;
+}
+.settings small { color: var(--muted); font-size: .8em; }
+.path-status {
+    margin-top: .35rem;
+    font-size: .85rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    line-height: 1.6;
+}
+.path-status .ok    { color: var(--good); }
+.path-status .warn  { color: #d9a13c; }
+.path-status .bad   { color: var(--bad); }
+.form-actions {
+    display: flex;
+    gap: .75rem;
+    align-items: center;
+    margin-top: 1.5rem;
+}
+.errors {
+    background: #3a1d1d;
+    border: 1px solid var(--bad);
+    border-radius: 4px;
+    padding: .75rem 1rem;
+    margin-top: 1rem;
+}
+.errors ul { margin: .35rem 0 0 1.25rem; padding: 0; }

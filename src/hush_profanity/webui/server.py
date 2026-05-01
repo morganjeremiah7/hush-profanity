@@ -1,10 +1,14 @@
-"""Flask server for manual scene skip marking.
+"""Flask server for manual scene skip marking + in-app settings editing.
 
 Endpoints:
     GET  /                         -> picker page
+    GET  /settings                 -> settings editor page
     GET  /api/library              -> JSON list of videos under configured roots
     GET  /api/edl?path=...         -> JSON of current auto + manual entries
     POST /api/edl?path=...         -> replace the manual section with posted entries
+    GET  /api/settings             -> JSON of current settings.toml
+    POST /api/settings             -> validate + write updated settings.toml
+    POST /api/check-paths          -> JSON: {path: exists?} for each posted path
     GET  /watch?path=...           -> video player + timeline page
     GET  /stream?path=...          -> video stream with HTTP byte-range support
     GET  /poster?path=...          -> single-frame poster image (lazy ffmpeg call)
@@ -26,6 +30,7 @@ from flask import Flask, Response, abort, jsonify, request, send_file
 
 from ..config import Settings
 from ..edl import EdlEntry, EdlFile
+from . import settings_io
 
 log = logging.getLogger(__name__)
 
@@ -134,6 +139,65 @@ def create_app(settings: Settings) -> Flask:
         ef.write(edl_path)
         return jsonify({"ok": True, "manual_count": len(manual)})
 
+    @app.route("/settings")
+    def settings_page():
+        from flask import render_template
+        return render_template("settings.html")
+
+    @app.route("/api/settings", methods=["GET"])
+    def api_settings_get():
+        settings_path = settings.project_root / "config" / "settings.toml"
+        return jsonify({
+            "data": settings_io.read_full(settings_path),
+            "exists": settings_path.exists(),
+            "editable_keys": {
+                section: list(keys.keys())
+                for section, keys in settings_io.EDITABLE_KEYS.items()
+            },
+            "allowed_values": {
+                f"{s}.{k}": v for (s, k), v in settings_io.ALLOWED_VALUES.items()
+            },
+        })
+
+    @app.route("/api/settings", methods=["POST"])
+    def api_settings_post():
+        settings_path = settings.project_root / "config" / "settings.toml"
+        body = request.get_json(silent=True) or {}
+        updates = body.get("updates")
+        if not isinstance(updates, dict):
+            abort(400, "expected JSON body with 'updates' object")
+        errors = settings_io.validate_updates(updates)
+        if errors:
+            return jsonify({"ok": False, "errors": errors}), 400
+        current = settings_io.read_full(settings_path)
+        merged = settings_io.merge_updates(current, updates)
+        try:
+            settings_io.write_full(settings_path, merged)
+        except Exception as e:
+            log.exception("settings write failed")
+            return jsonify({"ok": False, "errors": [f"write failed: {e}"]}), 500
+        log.info("Settings updated via Web UI: sections=%s", list(updates.keys()))
+        return jsonify({"ok": True, "data": merged,
+                        "note": "Saved. Some changes (gpu_workers, port) take effect on next scan / restart."})
+
+    @app.route("/api/check-paths", methods=["POST"])
+    def api_check_paths():
+        body = request.get_json(silent=True) or {}
+        paths = body.get("paths") or []
+        out = {}
+        for p in paths:
+            if not isinstance(p, str) or not p.strip():
+                continue
+            try:
+                pp = Path(p)
+                out[p] = {
+                    "exists": pp.exists(),
+                    "is_dir": pp.is_dir() if pp.exists() else False,
+                }
+            except Exception as e:
+                out[p] = {"exists": False, "is_dir": False, "error": str(e)}
+        return jsonify(out)
+
     @app.route("/stream")
     def stream():
         raw = request.args.get("path", "")
@@ -234,6 +298,17 @@ def _generate_poster(video: Path) -> bytes:
     return proc.stdout
 
 
+class _NoDevServerWarning(logging.Filter):
+    """Suppress Flask/werkzeug's loud 'this is a development server' banner.
+
+    The warning is appropriate when Flask is exposed to the internet, but we
+    only ever bind to 127.0.0.1 (or whatever the user chose) for a single-user
+    manual-edit tool. The banner just confuses non-developers.
+    """
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.getMessage().startswith("WARNING: This is a development server")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="hush-webui",
                                      description="Manual EDL scene-skip marker.")
@@ -245,6 +320,7 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings.load(args.config)
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("werkzeug").addFilter(_NoDevServerWarning())
 
     if not settings.library.roots:
         log.warning("No library roots configured — the web UI will show an empty "
