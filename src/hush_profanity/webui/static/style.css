@@ -79,6 +79,19 @@ main { padding: 1rem 1.5rem; }
     font-size: .95rem;
     margin-bottom: .75rem;
 }
+.tune-banner {
+    background: #2a3a4d;
+    border: 1px solid var(--accent);
+    border-left: 4px solid var(--accent);
+    padding: .55rem .85rem;
+    margin-bottom: .85rem;
+    font-size: .9rem;
+    border-radius: 3px;
+}
+.tune-banner output {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    color: var(--accent);
+}
 .transport {
     display: flex;
     gap: .35rem;

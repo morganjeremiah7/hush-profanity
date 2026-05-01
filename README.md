@@ -116,16 +116,22 @@ windows\manual-skip.bat
 
 Opens `http://127.0.0.1:8765/` in your default browser. Pick a video → scrub the timeline → press `I` to mark in, `O` to mark out, `Enter` to add the entry, then `Save EDL` to persist. The auto-detected profanity entries are shown read-only on the same page.
 
-Hotkeys in the player:
+When you press `I` or `O` the player **pauses on that frame** and enters fine-tune mode: arrow keys nudge the marker one frame at a time (Shift = 10 frames, `,`/`.` = 0.1 s) so you can land it exactly. Press `Space` (or click play) to confirm the marker and resume. `Esc` cancels the tune without resetting the marker.
+
+Hotkeys:
 
 | Key | Action |
 |---|---|
-| `Space` | play/pause |
+| `Space` | play/pause (also confirms a fine-tune) |
+| `←` / `→` | jump back / forward 10 s — or nudge ±1 frame in fine-tune mode |
+| `Shift+←` / `Shift+→` | jump back / forward 30 s — or nudge ±10 frames in fine-tune mode |
 | `J` / `L` | jump back / forward 5 s |
 | `,` / `.` | step back / forward 0.1 s |
-| `I` / `O` | mark in / out at current time |
+| `I` / `O` | mark in / out at current time (and enter fine-tune mode) |
 | `Enter` | append entry from in/out |
-| `Esc` | clear marks |
+| `Esc` | exit fine-tune mode (or clear marks if not tuning) |
+
+Or use the on-screen transport buttons: `⏪30s ⏪10s «5s ▶/⏸ 5s» 10s⏩ 30s⏩`.
 
 ### What happens to existing sidecars during a scan
 

@@ -11,14 +11,27 @@
     const autoBody = document.querySelector('#auto tbody');
     const manualCount = document.getElementById('manual-count');
     const autoCount = document.getElementById('auto-count');
+    const tuneBanner = document.getElementById('tune-banner');
+    const tuneWhich = document.getElementById('tune-which');
+    const tuneTime = document.getElementById('tune-time');
 
     actionSel.value = String(defaultAction);
+
+    // Approximate one-frame step. HTML5 video gives no reliable framerate
+    // readout, so we treat ~30 fps (≈33 ms) as the universal nudge unit.
+    // Most content is 24/25/30 fps; for our purposes (mute regions consumed
+    // by Kodi which seeks to keyframes anyway), single-frame precision in
+    // either direction is well within tolerance.
+    const FRAME_S = 1 / 30;
 
     let markIn = null;
     let markOut = null;
     let manual = []; // {start,end,action,comment}
     let autoEntries = [];
     let dirty = false;
+    // null | 'in' | 'out' — when set, ←/→ nudge the just-placed marker
+    // instead of doing a normal 10s seek.
+    let tuneTarget = null;
 
     function fmt(t) {
         if (t == null || isNaN(t)) return '—';
@@ -104,19 +117,65 @@
     document.getElementById('btn-save').addEventListener('click', save);
     document.getElementById('btn-playpause').addEventListener('click', togglePlay);
     document.querySelectorAll('.transport [data-seek-by]').forEach(btn => {
-        btn.addEventListener('click', () => seekBy(parseFloat(btn.dataset.seekBy)));
+        btn.addEventListener('click', () => {
+            if (tuneTarget) exitTune(false);   // user is jumping away — drop the tune
+            seekBy(parseFloat(btn.dataset.seekBy));
+        });
     });
 
-    function seekBy(delta) {
-        const t = (player.currentTime || 0) + delta;
+    function clamp(t) {
         const max = player.duration || 1e9;
-        player.currentTime = Math.max(0, Math.min(max, t));
+        return Math.max(0, Math.min(max, t));
     }
-    function togglePlay() { player.paused ? player.play() : player.pause(); }
+    function seekBy(delta) {
+        player.currentTime = clamp((player.currentTime || 0) + delta);
+    }
+    function togglePlay() {
+        if (tuneTarget) exitTune(true);   // confirm + play
+        else if (player.paused) player.play();
+        else player.pause();
+    }
 
-    function setIn() { markIn = player.currentTime; inEl.textContent = fmt(markIn); }
-    function setOut() { markOut = player.currentTime; outEl.textContent = fmt(markOut); }
-    function clearMarks() { markIn = markOut = null; inEl.textContent = outEl.textContent = '—'; }
+    function enterTune(which) {
+        tuneTarget = which;
+        player.pause();
+        const t = which === 'in' ? markIn : markOut;
+        player.currentTime = clamp(t);
+        tuneWhich.textContent = which.toUpperCase();
+        tuneTime.textContent = fmt(t);
+        tuneBanner.hidden = false;
+    }
+    function exitTune(play) {
+        tuneTarget = null;
+        tuneBanner.hidden = true;
+        if (play) player.play();
+    }
+    function nudgeMarker(deltaSeconds) {
+        if (!tuneTarget) return;
+        const updated = clamp((tuneTarget === 'in' ? markIn : markOut) + deltaSeconds);
+        if (tuneTarget === 'in')  { markIn  = updated; inEl.textContent  = fmt(updated); }
+        else                      { markOut = updated; outEl.textContent = fmt(updated); }
+        player.currentTime = updated;
+        tuneTime.textContent = fmt(updated);
+    }
+
+    function setIn() {
+        markIn = player.currentTime;
+        inEl.textContent = fmt(markIn);
+        toast(`IN set @ ${fmt(markIn)} — adjust with ←/→, Space to confirm`, 'ok');
+        enterTune('in');
+    }
+    function setOut() {
+        markOut = player.currentTime;
+        outEl.textContent = fmt(markOut);
+        toast(`OUT set @ ${fmt(markOut)} — adjust with ←/→, Space to confirm`, 'ok');
+        enterTune('out');
+    }
+    function clearMarks() {
+        markIn = markOut = null;
+        inEl.textContent = outEl.textContent = '—';
+        if (tuneTarget) exitTune(false);
+    }
     function addEntry() {
         if (markIn == null || markOut == null) {
             toast('set both IN and OUT first', 'error');
@@ -152,20 +211,34 @@
     }
 
     document.addEventListener('keydown', (e) => {
+        // Don't swallow keys while typing in a comment field.
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-        // Arrow keys: 10s base, 30s with shift. J/L kept at 5s for finer scrubbing.
-        if (e.key === 'ArrowLeft')  { e.preventDefault(); seekBy(e.shiftKey ? -30 : -10); return; }
-        if (e.key === 'ArrowRight') { e.preventDefault(); seekBy(e.shiftKey ?  30 :  10); return; }
+
+        // Arrow-key behavior depends on whether a marker is being fine-tuned.
+        // In tune mode: nudge the marker by 1 frame (or 10 with Shift).
+        // Out of tune mode: 10 s seek (30 s with Shift) — streaming convention.
+        if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            if (tuneTarget) nudgeMarker(e.shiftKey ? -10 * FRAME_S : -FRAME_S);
+            else            seekBy(e.shiftKey ? -30 : -10);
+            return;
+        }
+        if (e.key === 'ArrowRight') {
+            e.preventDefault();
+            if (tuneTarget) nudgeMarker(e.shiftKey ?  10 * FRAME_S :  FRAME_S);
+            else            seekBy(e.shiftKey ?  30 :  10);
+            return;
+        }
         switch (e.key.toLowerCase()) {
             case ' ': e.preventDefault(); togglePlay(); break;
             case 'j': seekBy(e.shiftKey ? -30 : -5); break;
             case 'l': seekBy(e.shiftKey ?  30 :  5); break;
-            case ',': seekBy(-0.1); break;
-            case '.': seekBy( 0.1); break;
+            case ',': if (tuneTarget) nudgeMarker(-0.1); else seekBy(-0.1); break;
+            case '.': if (tuneTarget) nudgeMarker( 0.1); else seekBy( 0.1); break;
             case 'i': setIn(); break;
             case 'o': setOut(); break;
             case 'enter': addEntry(); break;
-            case 'escape': clearMarks(); break;
+            case 'escape': if (tuneTarget) exitTune(false); else clearMarks(); break;
         }
     });
 

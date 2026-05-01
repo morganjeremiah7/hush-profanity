@@ -23,6 +23,15 @@
             <span>in:   <output id="mark-in">—</output></span>
             <span>out:  <output id="mark-out">—</output></span>
         </div>
+        <div id="tune-banner" class="tune-banner" hidden>
+            <strong>Adjusting <span id="tune-which">IN</span></strong>
+            — paused at <output id="tune-time">—</output>
+            · <kbd>←</kbd>/<kbd>→</kbd> ±1 frame
+            · <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> ±10 frames
+            · <kbd>,</kbd>/<kbd>.</kbd> ±0.1s
+            · <kbd>Space</kbd> confirm and play
+            · <kbd>Esc</kbd> cancel
+        </div>
         <div class="transport" role="toolbar" aria-label="Seek controls">
             <button class="seek" data-seek-by="-30" title="Back 30 seconds (Shift+J)">⏪ 30s</button>
             <button class="seek" data-seek-by="-10" title="Back 10 seconds (← arrow)">⏪ 10s</button>
