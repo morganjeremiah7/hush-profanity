@@ -5,8 +5,14 @@
 
 .DESCRIPTION
     Creates a Python venv at .venv\, installs PyTorch with CUDA 12.1,
-    installs the rest of the dependencies, verifies ffmpeg is on PATH,
-    and writes config\settings.toml from the example if it does not exist.
+    installs openai-whisper + WhisperX + triton-windows + the rest of the
+    project deps, verifies ffmpeg is on PATH, probes the GPU's VRAM, and
+    writes config\settings.toml from the example with auto-tuned `model`
+    and `gpu_workers` values matching the detected card:
+        24 GB+    -> large-v3 + gpu_workers = 2
+        12-23 GB  -> large-v3 + gpu_workers = 1
+         8-11 GB  -> medium  + gpu_workers = 1
+         < 8 GB   -> medium  + gpu_workers = 1 (with a warning)
 
     Requires:
       - Python 3.10, 3.11, or 3.12 on PATH

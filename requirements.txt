@@ -1,4 +1,6 @@
-# Pinned runtime dependencies. For installation instructions see docs/INSTALL.md.
+# Pinned runtime dependencies. For installation instructions see README.md
+# (or just run windows\install.bat on Windows; that wraps scripts\install-windows.ps1
+# and handles PyTorch+CUDA + the auto-tune step).
 # PyTorch + CUDA wheels are NOT listed here — they must be installed first
 # via the official index URL (see scripts/install-windows.ps1).
 

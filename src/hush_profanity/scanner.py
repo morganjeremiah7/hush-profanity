@@ -2,15 +2,20 @@
 
 Pipeline:
 
-    encode_q  ->  [N encode workers]  ->  gpu_q  ->  [1 GPU worker]  ->  post_q  ->  [M post workers]
+    encode_q  ->  [N encode workers]  ->  gpu_q  ->  [K GPU workers]  ->  post_q  ->  [M post workers]
 
     encode workers (CPU): ffmpeg-extract WAV from each video into a private tempdir.
-    GPU worker (CPU):     spawn a fresh python subprocess per file that does
-                          the actual GPU work (Whisper transcribe + wav2vec2
+    GPU workers (CPU):    each spawns a fresh python subprocess per file that
+                          does the actual GPU work (Whisper transcribe + wav2vec2
                           alignment) and returns word JSON. Subprocess isolation
                           is the workaround for ctranslate2's CUDA cleanup bug
-                          (OpenNMT/CTranslate2#1912) which corrupts the heap
+                          (OpenNMT/CTranslate2#1912) which corrupted the heap
                           after 1-3 in-process model destructions on Windows.
+                          We've since switched to openai-whisper (no ctranslate2),
+                          but kept subprocess isolation as belt-and-suspenders —
+                          a CUDA hiccup on one file can't poison the rest of the
+                          run. K = settings.performance.gpu_workers (typically 1
+                          on 12-23 GB cards, 2 on 24 GB+).
     post workers (CPU):   detect profanity, write EDL + SRT, save checkpoint, delete tempdir.
 
 All three stages run concurrently on different files. At steady state, while the GPU is
@@ -82,6 +87,14 @@ class _WorkItem:
     words: list[Any] = field(default_factory=list)
     error: str | None = None
     skipped: bool = False
+    # 1-based index into the producer's todo list, plus total length, so each
+    # log line can show "[27/7605]" for at-a-glance progress.
+    index: int = 0
+    total: int = 0
+    # True if this video was already in the checkpoint when the run started.
+    # Used by the SRT preservation logic to decide whether an existing
+    # <base>.srt is ours (safe to overwrite) or the user's (rename first).
+    was_processed: bool = False
 
 
 def find_videos(roots: list[Path], extensions: list[str]) -> list[Path]:
@@ -184,6 +197,7 @@ def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -
     words = item.words or []
     edl_path = video.with_suffix(".edl")
     srt_path = video.with_suffix(".srt")
+    original_srt_path = video.with_suffix(".original.srt")
     words_srt_path = video.with_name(f"{video.stem}-words.srt")
 
     if not words:
@@ -205,6 +219,22 @@ def _write_outputs(item: _WorkItem, settings: Settings, ctx: DetectionContext) -
     edl_file.write(edl_path)
 
     if settings.subtitles.generate_srt:
+        # Preserve any user-supplied .srt the first time we touch this video.
+        # The .original.srt sentinel makes this idempotent: once we've moved a
+        # user srt aside, subsequent runs see the sentinel and overwrite our
+        # own output freely. The was_processed check covers a second edge:
+        # if the user deletes .original.srt but the checkpoint still has the
+        # video, the existing .srt is ours, not theirs.
+        if (srt_path.exists()
+                and not original_srt_path.exists()
+                and not item.was_processed):
+            try:
+                srt_path.rename(original_srt_path)
+                log.info("Preserved existing subtitles: %s -> %s",
+                         srt_path.name, original_srt_path.name)
+            except Exception as e:
+                log.warning("Could not preserve existing %s (%s) — overwriting",
+                            srt_path.name, e)
         srt.write_cleaned_srt(
             words, srt_path,
             ctx.swears, ctx.phrases,
@@ -252,16 +282,18 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                 return
             video = item.video
             item.started = time.monotonic()
+            tag = f"[{item.index}/{item.total}]"
 
             edl_path = video.with_suffix(".edl")
             if settings.library.skip_if_processed and edl_path.exists():
                 existing = edl.EdlFile.read(edl_path, title=video.stem)
                 if existing.has_auto_entries():
-                    log.info("Skipping (already has auto EDL): %s", video.name)
+                    log.info("%s SKIP: %s (already has auto EDL)", tag, video)
                     item.skipped = True
                     gpu_q.put(item)
                     continue
 
+            log.info("%s BEGIN: %s", tag, video)
             try:
                 item.tempdir = Path(tempfile.mkdtemp(prefix="hush-"))
                 item.wav_path = item.tempdir / "audio.wav"
@@ -269,11 +301,11 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                     video, prefer_language=settings.whisper.audio_language
                 )
                 item.duration = audio.probe_duration(video)
-                log.info("[encode] %s (duration=%.1fs, audio_track=%d)",
-                         video.name, item.duration or -1, item.audio_idx)
+                log.info("%s [encode] %s (duration=%.1fs, audio_track=%d)",
+                         tag, video.name, item.duration or -1, item.audio_idx)
                 audio.extract_wav(video, item.wav_path, item.audio_idx)
             except Exception as e:
-                log.exception("[encode] failed: %s", video)
+                log.exception("%s [encode] failed: %s", tag, video)
                 item.error = f"encode: {e}"
             gpu_q.put(item)
 
@@ -308,6 +340,7 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
             item = post_q.get()
             if item is None:
                 return
+            tag = f"[{item.index}/{item.total}]"
             try:
                 if item.skipped:
                     elapsed = time.monotonic() - item.started
@@ -317,6 +350,8 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                     continue
                 if item.error:
                     elapsed = time.monotonic() - item.started
+                    log.error("%s FAIL: %s (%s) wall=%.1fs — will retry on next run",
+                              tag, item.video, item.error, elapsed)
                     _record(FileResult(path=item.video, ok=False, error=item.error,
                                        duration_seconds=item.duration,
                                        elapsed_seconds=elapsed))
@@ -324,6 +359,8 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                 try:
                     hit_count = _write_outputs(item, settings, ctx)
                     elapsed = time.monotonic() - item.started
+                    log.info("%s DONE: %s (wall=%.1fs, %d hits)",
+                             tag, item.video, elapsed, hit_count)
                     _record(FileResult(path=item.video, ok=True,
                                        profanity_count=hit_count,
                                        duration_seconds=item.duration,
@@ -332,8 +369,10 @@ def _make_pipeline(settings: Settings, ctx: DetectionContext, todo: list[Path],
                         done.add(str(item.video))
                         _save_checkpoint(settings.paths.checkpoint_file, done)
                 except Exception as e:
-                    log.exception("[post] failed: %s", item.video)
+                    log.exception("%s [post] failed: %s", tag, item.video)
                     elapsed = time.monotonic() - item.started
+                    log.error("%s FAIL: %s (post: %s) wall=%.1fs — will retry on next run",
+                              tag, item.video, e, elapsed)
                     _record(FileResult(path=item.video, ok=False, error=f"post: {e}",
                                        duration_seconds=item.duration,
                                        elapsed_seconds=elapsed))
@@ -373,9 +412,15 @@ def _run_pipeline(settings: Settings, ctx: DetectionContext,
         t.start()
 
     interrupted = False
+    total = len(todo)
     try:
-        for video in todo:
-            encode_q.put(_WorkItem(video=video))
+        for i, video in enumerate(todo, start=1):
+            encode_q.put(_WorkItem(
+                video=video,
+                index=i,
+                total=total,
+                was_processed=str(video) in done,
+            ))
     except KeyboardInterrupt:
         interrupted = True
         log.warning("Interrupted by user — draining in-flight files (Ctrl+C again to force-quit)")

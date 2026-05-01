@@ -19,18 +19,20 @@ video.mp4
    ├──► extract 16 kHz mono WAV (one audio track, optionally selected by language)
    │       │
    │       ▼
-   │   faster-whisper (large-v3, fp16) ──► segments + word timestamps
+   │   openai-whisper (large-v3, fp16, fresh subprocess per file) ──► segments + word timestamps
    │       │
    │       ▼
    │   WhisperX wav2vec2 alignment ──► word timestamps refined to ±20 ms
    │       │
-   │       ├──► profanity detector (lowercase, suffix-aware) ──► EDL mute entries
+   │       ├──► profanity detector (lowercase, suffix-aware, multi-word phrases) ──► EDL mute entries
    │       │
    │       └──► swap swears for family-friendly substitutes ──► cleaned subtitles
    │
    ├──► <video>.edl  (auto + manual sections)
    └──► <video>.srt
 ```
+
+A 3-stage parallel pipeline (CPU encode → GPU transcribe+align → CPU write) keeps the GPU fed across the whole library. Each transcription runs in a fresh Python subprocess, so a CUDA hiccup on one file can't poison the rest of the run. A checkpoint is saved after every successful file — Ctrl+C is safe (one press = graceful drain, two = hard exit).
 
 ## EDL-aware playback (which players actually honor `.edl` files)
 
@@ -85,7 +87,18 @@ After install, **edit `config\settings.toml`** — at minimum, set `[library].ro
 windows\scan.bat
 ```
 
-That walks the configured roots, processes each unprocessed file, and writes sidecars next to the source. Safe to interrupt with Ctrl+C — a checkpoint is saved after every file, so re-running picks up where it left off.
+That walks the configured roots, processes each unprocessed file, and writes sidecars next to the source. Safe to interrupt with Ctrl+C — a checkpoint is saved after every successful file, so re-running picks up where it left off. Files that errored or were interrupted are **not** checkpointed, so they're retried automatically on the next run.
+
+Each file gets a clear lifecycle line in the log:
+
+```
+[1234/7605] BEGIN: Y:\movies\Coco.mp4
+[1234/7605] DONE:  Y:\movies\Coco.mp4 (wall=2158.4s, 1 hits)
+[1235/7605] FAIL:  Y:\movies\BrokenFile.mp4 (transcribe-timeout: ...) wall=3601.2s — will retry on next run
+[1236/7605] SKIP:  Y:\movies\Already_done.mp4 (already has auto EDL)
+```
+
+`grep DONE:` / `grep FAIL:` / `grep SKIP:` over the log gives a quick run summary.
 
 ### Manual scene-skip editor (web UI)
 
@@ -106,10 +119,38 @@ Hotkeys in the player:
 | `Enter` | append entry from in/out |
 | `Esc` | clear marks |
 
+### What happens to existing sidecars during a scan
+
+You usually don't need to clean up anything before scanning — the scanner handles existing sidecars on its own:
+
+- **Existing `.srt` (e.g. official subtitles you downloaded)** — the first time hush-profanity processes a video that already has a `<base>.srt` next to it, the existing file is renamed to `<base>.original.srt` before the new clean subtitle is written. Subsequent re-scans of the same video overwrite our `<base>.srt` freely. Your originals are preserved without any pre-cleanup step.
+- **Existing `.edl`** — the EDL file format is sectioned. The scanner only rewrites the `Profanity Mutes` section; anything in the `Manual Skips` section (or in any other section you've added) is preserved across re-runs. Manual skip work added through the web tool stays put.
+- **Failed files** — if a file errors out during a scan (timeout, transient I/O error, you Ctrl+C, etc.), it is **not** added to the checkpoint. The next run will retry it automatically. The log marks every file with `[N/TOTAL] BEGIN: ...` / `DONE: ...` / `FAIL: ... — will retry on next run` so you can see exactly what's happened to each file.
+
+### Clean (advanced — bulk reset of sidecars)
+
+If you do want to wipe everything and start over (e.g. after a major model upgrade):
+
+```cmd
+windows\clean.bat                       REM dry-run, scope = settings.toml [library].roots
+windows\clean.bat --apply               REM commit
+windows\clean.bat --scope "Y:\Movies"   REM dry-run on a specific folder
+```
+
+Walks the configured roots and:
+- deletes every `.srt`,
+- deletes any `.edl` whose only entries are auto profanity mutes,
+- **moves** any `.edl` containing manual skip work (any `action=0` entry, or anything inside the `Manual Skips` section) into `logs\preserved-edls\<timestamp>\<root-name>\<rel-path>\` so they're easy to find and won't be loaded by Kodi or merged into a fresh scan.
+
+A human-readable index of every preserved EDL — with its skip ranges so you can paste them back later — is written to `logs\hush-clean-preserved-<timestamp>.txt`. Always dry-run unless `--apply` is passed.
+
+Most users never need this — the in-scanner preservation behavior above covers the typical workflow.
+
 ### Other ways to invoke
 
 ```cmd
 .venv\Scripts\python.exe -m hush_profanity scan
+.venv\Scripts\python.exe -m hush_profanity clean
 .venv\Scripts\python.exe -m hush_profanity.webui.server --port 8080
 ```
 
@@ -140,32 +181,36 @@ Two more files in `config/`:
 ## Repository layout
 
 ```
-config/                  swears.txt, replacements.json, settings.example.toml
-scripts/                 install-windows.ps1
+config/                       swears.txt, swear_phrases.txt, replacements.json, settings.example.toml
+scripts/                      install-windows.ps1
 src/hush_profanity/
-    __main__.py          python -m hush_profanity ...
-    cli.py               `hush` entry point
-    config.py            settings loader
-    audio.py             ffmpeg-based audio extraction + track selection
-    transcribe.py        faster-whisper + WhisperX alignment
-    profanity.py         word-level swear detection
-    srt.py               cleaned subtitle writer
-    edl.py               sectioned EDL read/write
-    scanner.py           library walker + per-file pipeline + checkpointing
+    __main__.py               python -m hush_profanity ...
+    cli.py                    `hush` entry point — scan / clean subcommands, two-strike Ctrl+C
+    config.py                 settings loader
+    audio.py                  ffmpeg-based audio extraction + track selection
+    transcribe.py             openai-whisper + WhisperX wav2vec2 alignment
+    _transcribe_worker.py     standalone subprocess worker — loads model in fresh Python per file
+    profanity.py              word + multi-word phrase swear detection
+    srt.py                    cleaned subtitle writer
+    edl.py                    sectioned EDL read/write (auto + manual sections)
+    scanner.py                library walker + 3-stage parallel pipeline + checkpointing
+    clean.py                  sidecar cleanup (delete .srt / auto-only .edl, move skip-bearing .edl)
     webui/
-        server.py        Flask server with byte-range streaming
-        templates/       index.html, watch.html
-        static/          style.css, index.js, watch.js
-windows/                 install.bat, scan.bat, manual-skip.bat
+        server.py             Flask server with byte-range streaming
+        templates/            index.html, watch.html
+        static/               style.css, index.js, watch.js
+windows/                      install.bat, scan.bat, manual-skip.bat, clean.bat
 ```
 
 ## Troubleshooting
 
-- **CUDA out of memory.** Set `[whisper].compute_type = "int8_float16"`. That cuts VRAM roughly in half.
+- **CUDA out of memory.** Drop `[performance].gpu_workers = 1` in `config\settings.toml`. If you're already at 1, set `[whisper].compute_type = "int8_float16"` (openai-whisper accepts this and falls back to fp16 internally — saves a little allocator headroom).
+- **Files getting "timed out (>3600s)" in the log.** The hard ceiling per file is 60 minutes (see `SUBPROCESS_TIMEOUT_SECONDS` in `src/hush_profanity/scanner.py`). On a 3090 with `gpu_workers=2`, even 2-hour films finish in ~30–40 min. If you're hitting the cap, you're either on a much slower GPU or an unusually long file — bump the constant or drop `gpu_workers` to 1 (each file finishes ~2× faster wall-time).
 - **`ffmpeg.exe` not found.** `winget install Gyan.FFmpeg`, then close and reopen the terminal.
 - **Slow on first run.** Whisper downloads the `large-v3` model (~3 GB) into your user cache the first time it loads. Subsequent runs reuse the cache.
 - **Wrong audio track on .mkv.** Set `[whisper].audio_language` to the right ISO 639-2 code (`eng`, `spa`, `fre`…). hush-profanity picks the first audio stream tagged with that language.
-- **Profanity in music or silence.** That's a Whisper hallucination. Make sure `[whisper].vad_filter = true` (default).
+- **Profanity in music or silence.** That's a Whisper hallucination. openai-whisper has no integrated VAD (the `vad_filter` setting from older configs is silently ignored). The current line of defense is its built-in `no_speech_threshold` and the swear-list itself — add false-positive triggers to a comment or remove them from `config\swears.txt`.
+- **Closing your terminal kills the scan.** Run `windows\scan.bat` from a standalone terminal (not VS Code's integrated terminal), or launch via `start "" cmd /k windows\scan.bat`. Closing the parent console sends `CTRL_CLOSE_EVENT` to all children — same effect as Ctrl+C.
 
 ## License
 
