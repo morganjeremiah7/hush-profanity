@@ -246,6 +246,11 @@ def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
+    if not settings.library.roots:
+        log.warning("No library roots configured — the web UI will show an empty "
+                    "video list. Edit config/settings.toml and set [library].roots "
+                    "to one or more folders, then restart this server.")
+
     host = args.host or settings.webui.host
     port = args.port or settings.webui.port
     app = create_app(settings)

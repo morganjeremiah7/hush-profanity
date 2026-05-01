@@ -194,8 +194,10 @@ def load_phrase_lines(path: Path) -> list[str]:
 def load_replacements(path: Path) -> tuple[dict[str, str], dict[str, str], str, str]:
     """Return (word_map, phrase_map, word_default, phrase_default).
 
-    Supports the v0.2 nested format ({"words": {...}, "phrases": {...}}) and the
-    v0.1 flat format ({"fuck": "fudge", ...}) for backwards compatibility.
+    Supports two on-disk shapes for replacements.json:
+      - canonical nested: {"words": {...}, "phrases": {...}, "_default": "..."}
+      - flat-dict fallback: {"fuck": "fudge", "shit": "shoot", ...}
+    The flat form is treated as words only.
     """
     with open(path, encoding="utf-8") as f:
         data = json.load(f)

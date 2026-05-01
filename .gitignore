@@ -45,7 +45,7 @@ models/
 *.pt
 *.ckpt
 
-# Sidecar test fixtures (don't commit real video data)
+# Sample / test media — don't commit real video or sidecar data
 *.mp4
 *.mkv
 *.avi
@@ -55,7 +55,3 @@ models/
 *.edl
 *.vtt
 *.ass
-# but DO commit examples in tests/fixtures/
-!tests/fixtures/**/*.srt
-!tests/fixtures/**/*.edl
-!tests/fixtures/**/*.vtt

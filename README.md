@@ -50,7 +50,7 @@ Players that **do not** honor EDL natively:
 
 ## Requirements
 
-- **Windows 10/11** (Linux supported via the same Python package, but launchers/install script are Windows-first)
+- **Windows 10/11.** Should work on Linux if you install all the dependencies. (Untested.)
 - **Python 3.10, 3.11, or 3.12**
 - **NVIDIA GPU** with ≥8 GB VRAM and a CUDA 12.x-capable driver
 - **ffmpeg** on PATH. Easiest install: `winget install Gyan.FFmpeg`, then open a fresh terminal
@@ -156,7 +156,7 @@ Most users never need this — the in-scanner preservation behavior above covers
 
 ## Configuration
 
-`config\settings.toml` is the only file you need to edit. Documented inline; the most important keys:
+`config\settings.toml` is the only file you need to edit. Every key is documented inline in the file (also see `config\settings.example.toml` for the full template). The table below highlights the keys you'll most often touch — see the example TOML for the rest (encode/post worker counts, beam size, subtitle cue limits, paths, etc.).
 
 | Key | Default | What it does |
 |---|---|---|
@@ -170,6 +170,7 @@ Most users never need this — the in-scanner preservation behavior above covers
 | `[edl].profanity_action` | `1` | `1` mute, `0` cut entirely. |
 | `[edl].padding_seconds` | `0.10` | Pad each mute region by this much on either side. |
 | `[edl].merge_gap_seconds` | `2.0` | Merge mutes within this many seconds of each other. |
+| `[performance].gpu_workers` | `1` (24 GB+ → `2`) | How many files transcribe in parallel on the GPU. Set by the installer based on detected VRAM. |
 | `[webui].port` | `8765` | HTTP port for the manual editor. |
 | `[webui].default_action` | `0` | Default EDL action for manual entries — `0` cut, `1` mute. |
 
@@ -205,7 +206,7 @@ windows/                      install.bat, scan.bat, manual-skip.bat, clean.bat
 ## Troubleshooting
 
 - **CUDA out of memory.** Drop `[performance].gpu_workers = 1` in `config\settings.toml`. If you're already at 1, set `[whisper].compute_type = "int8_float16"` (openai-whisper accepts this and falls back to fp16 internally — saves a little allocator headroom).
-- **Files getting "timed out (>3600s)" in the log.** The hard ceiling per file is 60 minutes (see `SUBPROCESS_TIMEOUT_SECONDS` in `src/hush_profanity/scanner.py`). On a 3090 with `gpu_workers=2`, even 2-hour films finish in ~30–40 min. If you're hitting the cap, you're either on a much slower GPU or an unusually long file — bump the constant or drop `gpu_workers` to 1 (each file finishes ~2× faster wall-time).
+- **Files getting "timed out (>3600s)" in the log.** The hard ceiling per file is 60 minutes (see `SUBPROCESS_TIMEOUT_SECONDS` in `src/hush_profanity/scanner.py`). On a 3090 with `gpu_workers=2`, even 2-hour films finish in ~30–40 min. If you're hitting the cap, you're either on a slower GPU or an unusually long file — bump the constant, or drop `gpu_workers` to 1 so each file gets the whole GPU (per-file completes faster, at the cost of overall throughput). Files that time out are not added to the checkpoint and will retry automatically on the next run.
 - **`ffmpeg.exe` not found.** `winget install Gyan.FFmpeg`, then close and reopen the terminal.
 - **Slow on first run.** Whisper downloads the `large-v3` model (~3 GB) into your user cache the first time it loads. Subsequent runs reuse the cache.
 - **Wrong audio track on .mkv.** Set `[whisper].audio_language` to the right ISO 639-2 code (`eng`, `spa`, `fre`…). hush-profanity picks the first audio stream tagged with that language.
