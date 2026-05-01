@@ -79,6 +79,28 @@ main { padding: 1rem 1.5rem; }
     font-size: .95rem;
     margin-bottom: .75rem;
 }
+.transport {
+    display: flex;
+    gap: .35rem;
+    align-items: center;
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-bottom: .85rem;
+    padding-bottom: .85rem;
+    border-bottom: 1px solid var(--border);
+}
+.transport .seek {
+    min-width: 4.5rem;
+    padding: .5rem .75rem;
+    font-size: .95rem;
+    font-weight: 500;
+}
+.transport .seek.primary {
+    min-width: 5.5rem;
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+}
 .buttons {
     display: flex;
     gap: .5rem;

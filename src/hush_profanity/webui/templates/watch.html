@@ -22,6 +22,15 @@
             <span>in:   <output id="mark-in">—</output></span>
             <span>out:  <output id="mark-out">—</output></span>
         </div>
+        <div class="transport" role="toolbar" aria-label="Seek controls">
+            <button class="seek" data-seek-by="-30" title="Back 30 seconds (Shift+J)">⏪ 30s</button>
+            <button class="seek" data-seek-by="-10" title="Back 10 seconds (← arrow)">⏪ 10s</button>
+            <button class="seek" data-seek-by="-5"  title="Back 5 seconds (J)">« 5s</button>
+            <button class="seek primary" id="btn-playpause" title="Play / pause (Space)">▶ / ⏸</button>
+            <button class="seek" data-seek-by="5"   title="Forward 5 seconds (L)">5s »</button>
+            <button class="seek" data-seek-by="10"  title="Forward 10 seconds (→ arrow)">10s ⏩</button>
+            <button class="seek" data-seek-by="30"  title="Forward 30 seconds (Shift+L)">30s ⏩</button>
+        </div>
         <div class="buttons">
             <button id="btn-in"     title="Set in point at current time (key: I)">Set IN (I)</button>
             <button id="btn-out"    title="Set out point at current time (key: O)">Set OUT (O)</button>
@@ -36,7 +45,9 @@
             </label>
             <button id="btn-save" class="primary">Save EDL</button>
         </div>
-        <p class="hint">Keys: <kbd>J</kbd>/<kbd>L</kbd> = back/forward 5s · <kbd>,</kbd>/<kbd>.</kbd> = frame ±0.1s · <kbd>Space</kbd> = play/pause</p>
+        <p class="hint">
+            Seek: <kbd>←</kbd>/<kbd>→</kbd> = 10s · <kbd>Shift</kbd>+<kbd>←</kbd>/<kbd>→</kbd> = 30s · <kbd>J</kbd>/<kbd>L</kbd> = 5s · <kbd>,</kbd>/<kbd>.</kbd> = frame ±0.1s · <kbd>Space</kbd> = play/pause
+        </p>
     </section>
 
     <section class="entries">

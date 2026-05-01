@@ -213,6 +213,22 @@ windows/                      install.bat, scan.bat, manual-skip.bat, clean.bat
 - **Profanity in music or silence.** That's a Whisper hallucination. openai-whisper has no integrated VAD (the `vad_filter` setting from older configs is silently ignored). The current line of defense is its built-in `no_speech_threshold` and the swear-list itself — add false-positive triggers to a comment or remove them from `config\swears.txt`.
 - **Closing your terminal kills the scan.** Run `windows\scan.bat` from a standalone terminal (not VS Code's integrated terminal), or launch via `start "" cmd /k windows\scan.bat`. Closing the parent console sends `CTRL_CLOSE_EVENT` to all children — same effect as Ctrl+C.
 
+## Acknowledgments
+
+hush-profanity is glue around some excellent open-source work. None of this would exist without them:
+
+- **[OpenAI Whisper](https://github.com/openai/whisper)** (MIT) — speech recognition. The `large-v3` model and the reference PyTorch implementation are what produces the transcript and word-level timestamps.
+- **[WhisperX](https://github.com/m-bain/whisperx)** (BSD-2-Clause) by Max Bain — wav2vec2 forced alignment for tightening word boundaries to ±20 ms (without this, mute regions leak by 200–500 ms).
+- **[PyTorch](https://pytorch.org/) + torchaudio** (BSD-3-Clause) — the deep-learning runtime and audio I/O.
+- **[triton-windows](https://github.com/woct0rdho/triton-windows)** (MIT) by woct0rdho — Windows port of OpenAI's Triton; lets Whisper JIT-compile the fast DTW kernel for word timestamps. Without it, Whisper falls back to a much slower pure-PyTorch path.
+- **[ffmpeg](https://ffmpeg.org/)** (LGPL/GPL depending on build) — audio extraction and stream selection. Enormous project; without it nothing works.
+- **[ffmpeg-python](https://github.com/kkroening/ffmpeg-python)** (Apache 2.0) by Karl Kroening — Python wrapper used to drive ffmpeg.
+- **[Flask](https://flask.palletsprojects.com/)** (BSD-3-Clause) — the web framework behind the manual scene-skip editor.
+- **[tomli](https://github.com/hukkin/tomli)** (MIT) — TOML parser used on Python 3.10 (3.11+ uses the stdlib `tomllib`).
+- **[Kodi](https://kodi.tv/)** (GPL-2.0) — the playback target that actually honors EDL files. The format itself is documented at the [Kodi EDL wiki](https://kodi.wiki/view/Edit_decision_list).
+
+The underlying speech models — Whisper and Facebook AI's wav2vec2 — were trained on data and time by their respective teams. Their work is what makes this project's output usable; the code in this repo is mostly orchestration and post-processing on top of theirs.
+
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). The MIT license applies to this project's code only; bundled or installed dependencies retain their own licenses (listed above).

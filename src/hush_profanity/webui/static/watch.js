@@ -102,6 +102,17 @@
     document.getElementById('btn-add').addEventListener('click', addEntry);
     document.getElementById('btn-clear').addEventListener('click', clearMarks);
     document.getElementById('btn-save').addEventListener('click', save);
+    document.getElementById('btn-playpause').addEventListener('click', togglePlay);
+    document.querySelectorAll('.transport [data-seek-by]').forEach(btn => {
+        btn.addEventListener('click', () => seekBy(parseFloat(btn.dataset.seekBy)));
+    });
+
+    function seekBy(delta) {
+        const t = (player.currentTime || 0) + delta;
+        const max = player.duration || 1e9;
+        player.currentTime = Math.max(0, Math.min(max, t));
+    }
+    function togglePlay() { player.paused ? player.play() : player.pause(); }
 
     function setIn() { markIn = player.currentTime; inEl.textContent = fmt(markIn); }
     function setOut() { markOut = player.currentTime; outEl.textContent = fmt(markOut); }
@@ -142,12 +153,15 @@
 
     document.addEventListener('keydown', (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+        // Arrow keys: 10s base, 30s with shift. J/L kept at 5s for finer scrubbing.
+        if (e.key === 'ArrowLeft')  { e.preventDefault(); seekBy(e.shiftKey ? -30 : -10); return; }
+        if (e.key === 'ArrowRight') { e.preventDefault(); seekBy(e.shiftKey ?  30 :  10); return; }
         switch (e.key.toLowerCase()) {
-            case ' ': e.preventDefault(); player.paused ? player.play() : player.pause(); break;
-            case 'j': player.currentTime = Math.max(0, player.currentTime - 5); break;
-            case 'l': player.currentTime = Math.min(player.duration || 1e9, player.currentTime + 5); break;
-            case ',': player.currentTime = Math.max(0, player.currentTime - 0.1); break;
-            case '.': player.currentTime = Math.min(player.duration || 1e9, player.currentTime + 0.1); break;
+            case ' ': e.preventDefault(); togglePlay(); break;
+            case 'j': seekBy(e.shiftKey ? -30 : -5); break;
+            case 'l': seekBy(e.shiftKey ?  30 :  5); break;
+            case ',': seekBy(-0.1); break;
+            case '.': seekBy( 0.1); break;
             case 'i': setIn(); break;
             case 'o': setOut(); break;
             case 'enter': addEntry(); break;
