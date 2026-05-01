@@ -43,8 +43,11 @@ log = logging.getLogger(__name__)
 
 
 # Hard ceiling so a wedged subprocess can't block the pipeline forever.
-# Most files transcribe in 2-4 minutes; alignment adds ~30s. 30 min is generous.
-SUBPROCESS_TIMEOUT_SECONDS = 30 * 60
+# With gpu_workers=2 on a 3090, long films (90-120 min) routinely take 25-30
+# min wall time per file due to GPU contention; the previous 30-min cap was
+# skipping ~half the long-form library. 60 min covers anything up to ~2 hr of
+# audio with the current dual-worker pace and still bounds runaway workers.
+SUBPROCESS_TIMEOUT_SECONDS = 60 * 60
 
 
 @dataclass
