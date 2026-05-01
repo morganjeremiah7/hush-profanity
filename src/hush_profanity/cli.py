@@ -86,10 +86,17 @@ def _cmd_clean(args, settings: Settings) -> int:
         log.error("No scope. Pass --scope PATH or set [library].roots in settings.toml.")
         return 2
 
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    if args.preserved_dir is not None:
+        dest_dir = args.preserved_dir
+    else:
+        dest_dir = Path(settings.paths.log_dir) / "preserved-edls" / stamp
+
     log.info("Scope: %s", [str(r) for r in roots])
+    log.info("Preserved-EDL destination: %s", dest_dir)
     log.info("Apply: %s", args.apply)
 
-    plan = clean_mod.plan(roots)
+    plan = clean_mod.plan(roots, dest_dir)
     n_total = plan.total_files_touched()
     if n_total == 0:
         log.info("Nothing to do. No .srt or .edl files found under scope.")
@@ -100,7 +107,7 @@ def _cmd_clean(args, settings: Settings) -> int:
     log.info("  .srt files to %s:                %d", verb, len(plan.srt_deleted))
     log.info("  .edl files to %s (no skips):    %d", verb, len(plan.edl_deleted))
     log.info("  .edl files to %s (have skips):  %d",
-             "rename to .edl.preserved" if args.apply else "rename (DRY RUN)",
+             f"move under {dest_dir}" if args.apply else "move (DRY RUN)",
              len(plan.edl_preserved))
 
     clean_mod.execute(plan, apply=args.apply)
@@ -143,11 +150,12 @@ def main(argv: list[str] | None = None) -> int:
             "Walks the configured library roots recursively and:\n"
             "  - deletes every .srt file (no exceptions),\n"
             "  - deletes any .edl file that contains no skip-worthy entries,\n"
-            "  - renames .edl files that DO contain manual skip work to "
-            "<base>.edl.preserved so they stay in their directory but won't "
-            "be loaded by Kodi or merged into a fresh scan,\n"
-            "  - writes a human-readable log of every preserved EDL to "
-            "logs/hush-clean-preserved-*.txt.\n\n"
+            "  - MOVES .edl files that DO contain manual skip work out of the\n"
+            "    library into a preserved-EDL folder (default:\n"
+            "    logs/preserved-edls/<timestamp>/<root-name>/<relative-path>),\n"
+            "    so they're easy to find and won't be loaded by Kodi,\n"
+            "  - writes a human-readable log of every preserved EDL to\n"
+            "    logs/hush-clean-preserved-*.txt.\n\n"
             "Dry-run unless --apply is passed."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -155,8 +163,11 @@ def main(argv: list[str] | None = None) -> int:
     p_clean.add_argument("--scope", action="append", default=[],
                          help="Override the scope (folder to clean). May be passed multiple times. "
                               "If omitted, uses [library].roots from settings.toml.")
+    p_clean.add_argument("--preserved-dir", type=Path, default=None,
+                         help="Folder to move skip-bearing EDLs into. Default: "
+                              "logs/preserved-edls/<timestamp>/")
     p_clean.add_argument("--apply", action="store_true",
-                         help="Actually delete and rename. Without this flag, dry-run only.")
+                         help="Actually delete and move. Without this flag, dry-run only.")
 
     args = parser.parse_args(argv)
     settings = Settings.load(args.config)

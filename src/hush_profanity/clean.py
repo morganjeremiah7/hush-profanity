@@ -9,9 +9,13 @@ Behavior:
   .edl   — examined first.
            If the file contains "skip-worthy" content (any action=0 entry
            anywhere, OR any entry inside a `Manual Skips` section) it is
-           RENAMED to <base>.edl.preserved (with a counter on collision)
-           so it stays in the directory but won't be loaded by Kodi or
-           merged into a fresh scan.
+           MOVED out of the library to a preserved-EDL folder
+           (logs/preserved-edls/<timestamp>/<root-name>/<relative-path> by
+           default, configurable via --preserved-dir). The file keeps its
+           original name and relative directory layout under the destination,
+           so you can tell at a glance which video and root each one came
+           from. Moved EDLs won't be loaded by Kodi (different folder) and
+           won't be merged into a fresh scan.
 
            Otherwise the .edl is DELETED outright.
 
@@ -20,12 +24,13 @@ human-readable so you can paste them into the new EDL or re-mark them in the
 web UI — is written to logs/hush-clean-preserved-YYYYMMDD-HHMMSS.txt regardless
 of dry-run/apply.
 
-Defaults to dry-run; pass --apply to actually delete and rename.
+Defaults to dry-run; pass --apply to actually delete and move.
 """
 from __future__ import annotations
 
 import logging
 import re
+import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -52,7 +57,7 @@ class SkipEntry:
 @dataclass
 class PreservedEdl:
     original: Path
-    renamed_to: Path
+    dest: Path
     skips: list[SkipEntry] = field(default_factory=list)
 
 
@@ -130,55 +135,53 @@ def _read_edl_skips(path: Path) -> list[SkipEntry]:
     return skips
 
 
-def _next_preserved_path(edl_path: Path) -> Path:
-    """Pick a non-colliding name for the preserved file."""
-    candidate = edl_path.with_suffix(edl_path.suffix + ".preserved")
+def _resolve_dest(src: Path, root: Path, dest_root_dir: Path) -> Path:
+    """Pick a non-colliding dest path under dest_root_dir / <src relative to root>."""
+    candidate = dest_root_dir / src.relative_to(root)
     if not candidate.exists():
         return candidate
+    parent = candidate.parent
+    stem = candidate.stem
+    sfx = candidate.suffix
     i = 1
     while True:
-        candidate = edl_path.with_suffix(edl_path.suffix + f".preserved.{i}")
+        candidate = parent / f"{stem}.{i}{sfx}"
         if not candidate.exists():
             return candidate
         i += 1
 
 
-def find_targets(roots: list[Path]) -> tuple[list[Path], list[Path]]:
-    """Walk roots and return (srt_files, edl_files) recursively."""
-    srt: list[Path] = []
-    edl: list[Path] = []
+def plan(roots: list[Path], dest_dir: Path) -> CleanResult:
+    """Decide what to do with each file. Does NOT touch the filesystem."""
+    result = CleanResult()
+    seen_root_names: dict[str, int] = {}
     for root in roots:
         if not root.exists():
             log.warning("Library root does not exist: %s", root)
             continue
+        n = seen_root_names.get(root.name, 0)
+        seen_root_names[root.name] = n + 1
+        effective_root_name = root.name if n == 0 else f"{root.name}.{n}"
+        per_root_dest = dest_dir / effective_root_name
         for p in root.rglob("*"):
             if not p.is_file():
                 continue
             suf = p.suffix.lower()
             if suf == ".srt":
-                srt.append(p)
+                result.srt_deleted.append(p)
             elif suf == ".edl":
-                edl.append(p)
-    srt.sort()
-    edl.sort()
-    return srt, edl
-
-
-def plan(roots: list[Path]) -> CleanResult:
-    """Decide what to do with each file. Does NOT touch the filesystem."""
-    result = CleanResult()
-    srt_files, edl_files = find_targets(roots)
-    result.srt_deleted = srt_files
-
-    for edl_path in edl_files:
-        skips = _read_edl_skips(edl_path)
-        if skips:
-            renamed = _next_preserved_path(edl_path)
-            result.edl_preserved.append(PreservedEdl(
-                original=edl_path, renamed_to=renamed, skips=skips,
-            ))
-        else:
-            result.edl_deleted.append(edl_path)
+                skips = _read_edl_skips(p)
+                if skips:
+                    result.edl_preserved.append(PreservedEdl(
+                        original=p,
+                        dest=_resolve_dest(p, root, per_root_dest),
+                        skips=skips,
+                    ))
+                else:
+                    result.edl_deleted.append(p)
+    result.srt_deleted.sort()
+    result.edl_deleted.sort()
+    result.edl_preserved.sort(key=lambda x: x.original)
     return result
 
 
@@ -204,14 +207,15 @@ def execute(plan_result: CleanResult, apply: bool) -> CleanResult:
 
     for pres in plan_result.edl_preserved:
         log.info("%s [edl with %d skips] %s -> %s",
-                 "RENAME" if apply else "WOULD RENAME",
-                 len(pres.skips), pres.original, pres.renamed_to.name)
+                 "MOVE" if apply else "WOULD MOVE",
+                 len(pres.skips), pres.original, pres.dest)
         if apply:
             try:
-                pres.original.rename(pres.renamed_to)
+                pres.dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(pres.original), str(pres.dest))
             except Exception as e:
-                log.error("rename failed: %s -> %s — %s", pres.original, pres.renamed_to, e)
-                plan_result.failures.append((pres.original, f"rename: {e}"))
+                log.error("move failed: %s -> %s — %s", pres.original, pres.dest, e)
+                plan_result.failures.append((pres.original, f"move: {e}"))
 
     return plan_result
 
@@ -233,7 +237,7 @@ def write_preserved_log(plan_result: CleanResult, log_dir: Path,
     lines.append(f"scope: {[str(r) for r in scope_roots]}")
     lines.append("")
     lines.append(f"{len(plan_result.edl_preserved)} EDL file(s) contained manual skip work and were "
-                 f"{'renamed to .edl.preserved' if apply else 'WOULD BE renamed to .edl.preserved'}.")
+                 f"{'moved out of the library' if apply else 'WOULD BE moved out of the library'}.")
     lines.append("")
     lines.append("Each block below shows the skip-worthy entries from that file. To carry them")
     lines.append("forward into the next scan, either:")
@@ -244,7 +248,7 @@ def write_preserved_log(plan_result: CleanResult, log_dir: Path,
     lines.append("=" * 78)
     for i, pres in enumerate(plan_result.edl_preserved, 1):
         lines.append(f"[{i}] {pres.original}")
-        lines.append(f"    {'->' if apply else '(would ->)'} {pres.renamed_to.name}")
+        lines.append(f"    {'->' if apply else '(would ->)'} {pres.dest}")
         lines.append(f"    {len(pres.skips)} skip-worthy entr{'ies' if len(pres.skips) != 1 else 'y'}:")
         for s in pres.skips:
             tag = f"section={s.section}"
