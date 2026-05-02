@@ -48,39 +48,19 @@ Write-Host "Removing context menu for extensions: $($extensions -join ', ')" -Fo
 
 $regBase = "HKLM:\Software\Classes"
 $menuName = "Edit with hush-profanity"
-$removed = 0
-$failed = 0
 
-foreach ($ext in $extensions) {
-    if (-not $ext.StartsWith(".")) {
-        $ext = ".$ext"
+try {
+    $shellPath = "$regBase\*\shell\$menuName"
+
+    if (Test-Path $shellPath) {
+        Remove-Item -Path $shellPath -Recurse -Force -ErrorAction Stop
+        Write-Host "OK: Removed context menu" -ForegroundColor Green
+    } else {
+        Write-Host "Context menu not registered (nothing to remove)" -ForegroundColor Gray
     }
-
-    try {
-        $shellPath = "$regBase\$ext\shell\$menuName"
-
-        if (Test-Path $shellPath) {
-            Remove-Item -Path $shellPath -Recurse -Force -ErrorAction Stop
-            Write-Host "OK: Removed $ext" -ForegroundColor Green
-            $removed++
-        } else {
-            Write-Host "SKIP: $ext not registered" -ForegroundColor Gray
-        }
-    } catch {
-        Write-Host "ERROR: Failed to remove $ext : $_" -ForegroundColor Red
-        $failed++
-    }
+} catch {
+    Write-Host "ERROR: Failed to remove context menu : $_" -ForegroundColor Red
 }
 
 Write-Host ""
-if ($removed -gt 0) {
-    $msg = "Uninstallation complete! Removed context menu from $removed extension(s)."
-    Write-Host $msg -ForegroundColor Green
-} else {
-    Write-Host "No context menu entries found to remove." -ForegroundColor Gray
-}
-
-if ($failed -gt 0) {
-    $msg = "Warning: Failed to remove $failed extension(s). See above for details."
-    Write-Host $msg -ForegroundColor Yellow
-}
+Write-Host "Uninstallation complete!" -ForegroundColor Green

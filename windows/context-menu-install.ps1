@@ -61,27 +61,23 @@ $menuName = "Edit with hush-profanity"
 
 $regBase = "HKLM:\Software\Classes"
 
-foreach ($ext in $extensions) {
-    if (-not $ext.StartsWith(".")) {
-        $ext = ".$ext"
+# Register for all files (wildcard) instead of per-extension
+# This shows up more reliably in Windows 11's context menu
+$classPath = "$regBase\*"
+$shellPath = "$classPath\shell\$menuName\command"
+
+try {
+    if (-not (Test-Path $shellPath)) {
+        New-Item -Path $shellPath -Force -ErrorAction Stop | Out-Null
     }
 
-    try {
-        $classPath = Join-Path $regBase $ext
-        $shellPath = "$classPath\shell\$menuName\command"
+    $psPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+    $command = '"' + $psPath + '" -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
+    Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
 
-        if (-not (Test-Path $shellPath)) {
-            New-Item -Path $shellPath -Force -ErrorAction Stop | Out-Null
-        }
-
-        $psPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-        $command = '"' + $psPath + '" -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
-        Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
-
-        Write-Host "OK: Registered $ext" -ForegroundColor Green
-    } catch {
-        Write-Host "ERROR: Failed to register $ext : $_" -ForegroundColor Red
-    }
+    Write-Host "OK: Registered context menu for all file types" -ForegroundColor Green
+} catch {
+    Write-Host "ERROR: Failed to register context menu : $_" -ForegroundColor Red
 }
 
 Write-Host ""
