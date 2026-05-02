@@ -30,8 +30,8 @@ try {
 if (-not $flaskRunning) {
     $batchPath = Join-Path (Split-Path $PSCommandPath) "manual-skip.bat"
     if (Test-Path $batchPath) {
-        # Start batch file in background, detached from current window
-        Start-Process -FilePath $batchPath -WindowStyle Hidden -NoNewWindow
+        # Start batch file in background, hidden window
+        Start-Process -FilePath $batchPath -WindowStyle Hidden
         # Wait for Flask to start
         Start-Sleep -Seconds 3
     }
