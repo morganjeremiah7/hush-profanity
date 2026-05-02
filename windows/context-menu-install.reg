@@ -1,7 +1,0 @@
-Windows Registry Editor Version 5.00
-
-[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\Edit with hush-profanity]
-@="&Edit with hush-profanity"
-
-[HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\Edit with hush-profanity\command]
-@="\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -NoProfile -ExecutionPolicy Bypass -File \"C:\\Users\\morga\\Projects\\Swearing Remover\\windows\\edit-with-hush.ps1\" \"%1\""
