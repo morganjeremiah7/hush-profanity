@@ -75,7 +75,11 @@ try {
     $command = '"' + $psPath + '" -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
     Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
 
+    # Also set display name
+    Set-ItemProperty -Path "$classPath\shell\$menuName" -Name "(Default)" -Value "Edit with &hush-profanity" -ErrorAction Stop
+
     Write-Host "OK: Registered context menu for all file types" -ForegroundColor Green
+    Write-Host "Helper script path: $helperScript" -ForegroundColor Cyan
 } catch {
     Write-Host "ERROR: Failed to register context menu : $_" -ForegroundColor Red
 }
