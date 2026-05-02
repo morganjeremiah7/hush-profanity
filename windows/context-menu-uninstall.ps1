@@ -27,12 +27,11 @@ $settingsPath = Join-Path $projectRoot "config\settings.toml"
 $settingsExamplePath = Join-Path $projectRoot "config\settings.example.toml"
 
 # Parse settings.toml to find configured extensions
-$extensions = @(".mp4", ".mkv")  # defaults
+$extensions = @(".mp4", ".mkv")
 
 if (Test-Path $settingsPath) {
     try {
         $content = Get-Content $settingsPath -Raw
-        # Simple regex to extract extensions array: extensions = [".mp4", ".mkv"]
         if ($content -match 'extensions\s*=\s*\[(.*?)\]') {
             $extStr = $matches[1]
             $extStr = $extStr -replace '"', '' -replace "'", ''
@@ -47,7 +46,7 @@ if (Test-Path $settingsPath) {
 
 Write-Host "Removing context menu for extensions: $($extensions -join ', ')" -ForegroundColor Cyan
 
-$regClassesBase = "HKLM:\Software\Classes"
+$regBase = "HKLM:\Software\Classes"
 $menuName = "Edit with hush-profanity"
 $removed = 0
 $failed = 0
@@ -58,28 +57,30 @@ foreach ($ext in $extensions) {
     }
 
     try {
-        $shellPath = Join-Path $regClassesBase $ext "shell/$menuName"
+        $shellPath = Join-Path $regBase $ext "shell" $menuName
 
         if (Test-Path $shellPath) {
             Remove-Item -Path $shellPath -Recurse -Force -ErrorAction Stop
-            Write-Host "✓ Removed $ext" -ForegroundColor Green
+            Write-Host "OK: Removed $ext" -ForegroundColor Green
             $removed++
         } else {
-            Write-Host "- $ext not registered (nothing to remove)" -ForegroundColor Gray
+            Write-Host "SKIP: $ext not registered" -ForegroundColor Gray
         }
     } catch {
-        Write-Host "✗ Failed to remove $ext : $_" -ForegroundColor Red
+        Write-Host "ERROR: Failed to remove $ext : $_" -ForegroundColor Red
         $failed++
     }
 }
 
 Write-Host ""
 if ($removed -gt 0) {
-    Write-Host "Uninstallation complete! Removed context menu from $removed extension(s)." -ForegroundColor Green
+    $msg = "Uninstallation complete! Removed context menu from $removed extension(s)."
+    Write-Host $msg -ForegroundColor Green
 } else {
     Write-Host "No context menu entries found to remove." -ForegroundColor Gray
 }
 
 if ($failed -gt 0) {
-    Write-Host "Warning: Failed to remove $failed extension(s). See above for details." -ForegroundColor Yellow
+    $msg = "Warning: Failed to remove $failed extension(s). See above for details."
+    Write-Host $msg -ForegroundColor Yellow
 }

@@ -31,12 +31,11 @@ $settingsPath = Join-Path $projectRoot "config\settings.toml"
 $settingsExamplePath = Join-Path $projectRoot "config\settings.example.toml"
 
 # Parse settings.toml to find configured extensions
-$extensions = @(".mp4", ".mkv")  # defaults
+$extensions = @(".mp4", ".mkv")
 
 if (Test-Path $settingsPath) {
     try {
         $content = Get-Content $settingsPath -Raw
-        # Simple regex to extract extensions array: extensions = [".mp4", ".mkv"]
         if ($content -match 'extensions\s*=\s*\[(.*?)\]') {
             $extStr = $matches[1]
             $extStr = $extStr -replace '"', '' -replace "'", ''
@@ -58,38 +57,9 @@ if (-not (Test-Path $helperScript)) {
 }
 
 $helperScript = (Resolve-Path $helperScript).Path
-
-# Registry base path for file associations
-$regBase = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts"
-
-# Create context menu entry for each extension
 $menuName = "Edit with hush-profanity"
-$progId = "hush-profanity.Edit"
 
-foreach ($ext in $extensions) {
-    # Ensure extension starts with a dot
-    if (-not $ext.StartsWith(".")) {
-        $ext = ".$ext"
-    }
-
-    try {
-        # Create UserChoice key for this extension (stores recent choice)
-        $extPath = Join-Path $regBase $ext
-        $shellPath = Join-Path $extPath "UserChoice\shell"
-
-        if (-not (Test-Path $extPath)) {
-            New-Item -Path $extPath -Force -ErrorAction SilentlyContinue | Out-Null
-        }
-
-        Write-Host "Configuring $ext..." -ForegroundColor White
-    } catch {
-        # Silently skip; the HKCU way might not work on all systems
-    }
-}
-
-# Also register globally via HKEY_CLASSES_ROOT (system-wide)
-# This is the main method that works reliably across most setups
-$regClassesBase = "HKLM:\Software\Classes"
+$regBase = "HKLM:\Software\Classes"
 
 foreach ($ext in $extensions) {
     if (-not $ext.StartsWith(".")) {
@@ -97,27 +67,25 @@ foreach ($ext in $extensions) {
     }
 
     try {
-        $classPath = Join-Path $regClassesBase $ext
-        $shellPath = Join-Path $classPath "shell/$menuName/command"
+        $classPath = Join-Path $regBase $ext
+        $shellPath = Join-Path $classPath "shell" $menuName "command"
 
-        # Ensure the path exists
         if (-not (Test-Path $shellPath)) {
             New-Item -Path $shellPath -Force -ErrorAction Stop | Out-Null
         }
 
-        # Set the command that will be executed
-        # PowerShell command: run our helper script with the file path
-        $command = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File `"$helperScript`" `"%1`""
+        $command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
         Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
 
-        Write-Host "✓ Registered $ext" -ForegroundColor Green
+        Write-Host "OK: Registered $ext" -ForegroundColor Green
     } catch {
-        Write-Host "✗ Failed to register $ext : $_" -ForegroundColor Red
+        Write-Host "ERROR: Failed to register $ext : $_" -ForegroundColor Red
     }
 }
 
 Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
-Write-Host "Right-click any video file ($($extensions -join ', ')) to see 'Edit with hush-profanity'" -ForegroundColor Cyan
+Write-Host "Right-click any video file to see 'Edit with hush-profanity'" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "To uninstall, run: powershell -ExecutionPolicy Bypass -File windows/context-menu-uninstall.ps1" -ForegroundColor Gray
+$msg = "To uninstall, run: powershell -ExecutionPolicy Bypass -File context-menu-uninstall.ps1"
+Write-Host $msg -ForegroundColor Gray
