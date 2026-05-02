@@ -120,4 +120,4 @@ Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host "Right-click any video file ($($extensions -join ', ')) to see 'Edit with hush-profanity'" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "To uninstall, run: powershell -ExecutionPolicy Bypass -File windows\context-menu-uninstall.ps1" -ForegroundColor Gray
+Write-Host "To uninstall, run: powershell -ExecutionPolicy Bypass -File windows/context-menu-uninstall.ps1" -ForegroundColor Gray
