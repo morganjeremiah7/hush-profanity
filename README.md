@@ -133,21 +133,21 @@ Hotkeys:
 
 Or use the on-screen transport buttons: `⏪30s ⏪10s «5s ▶/⏸ 5s» 10s⏩ 30s⏩`.
 
-### Context menu (Windows)
+### Context menu (Windows, optional)
 
-Instead of opening `manual-skip.bat` every time, you can register a right-click context menu item that launches the editor directly on any file.
+You can optionally register a right-click context menu item for quick access to the editor on any file.
 
 **Installation (one-time setup):**
 
 1. Navigate to the `windows\` folder
-2. Right-click **`uninstall.reg`** → **Merge** → **Yes** (if you installed an older version)
-3. Right-click **`install.reg`** → **Merge** → **Yes**
-
-Done! The context menu is now registered.
+2. Right-click **`install.reg`** → **Merge** → **Yes**
 
 **Usage:**
 
-Just right-click **any file** → **"Edit with hush-profanity"**. The editor opens with that file loaded. Flask auto-starts if it's not already running.
+1. Start Flask: `windows\manual-skip.bat`
+2. Right-click **any file** → **"Edit with hush-profanity"**
+
+The editor opens with that file loaded. This is just a convenience shortcut; you can also access the library via the `manual-skip.bat` window directly.
 
 **To uninstall:**
 
