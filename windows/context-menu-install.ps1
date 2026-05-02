@@ -74,7 +74,8 @@ foreach ($ext in $extensions) {
             New-Item -Path $shellPath -Force -ErrorAction Stop | Out-Null
         }
 
-        $command = 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
+        $psPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+        $command = '"' + $psPath + '" -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
         Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
 
         Write-Host "OK: Registered $ext" -ForegroundColor Green
