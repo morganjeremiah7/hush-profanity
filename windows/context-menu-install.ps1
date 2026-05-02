@@ -98,7 +98,7 @@ foreach ($ext in $extensions) {
 
     try {
         $classPath = Join-Path $regClassesBase $ext
-        $shellPath = Join-Path $classPath "shell\$menuName\command"
+        $shellPath = Join-Path $classPath "shell/$menuName/command"
 
         # Ensure the path exists
         if (-not (Test-Path $shellPath)) {

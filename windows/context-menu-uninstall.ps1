@@ -58,7 +58,7 @@ foreach ($ext in $extensions) {
     }
 
     try {
-        $shellPath = Join-Path $regClassesBase $ext "shell\$menuName"
+        $shellPath = Join-Path $regClassesBase $ext "shell/$menuName"
 
         if (Test-Path $shellPath) {
             Remove-Item -Path $shellPath -Recurse -Force -ErrorAction Stop
