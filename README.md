@@ -135,13 +135,19 @@ Or use the on-screen transport buttons: `⏪30s ⏪10s «5s ▶/⏸ 5s» 10s⏩ 
 
 ### Context menu (Windows)
 
-Instead of opening `manual-skip.bat` every time, you can register a right-click context menu item that launches the editor directly on any video file:
+Instead of opening `manual-skip.bat` every time, you can register a right-click context menu item that launches the editor directly on any file:
 
 ```cmd
 powershell -ExecutionPolicy Bypass -File windows\context-menu-install.ps1
 ```
 
-After installation, right-click any `.mp4`, `.mkv`, or other configured video format and select **"Edit with hush-profanity"**. The editor opens directly on that file (Flask starts automatically if it's not already running).
+After installation, start Flask first:
+
+```cmd
+windows\manual-skip.bat
+```
+
+Then right-click **any file** and select **"Edit with hush-profanity"**. Your default browser opens to the editor with that file loaded.
 
 To uninstall the context menu:
 
@@ -149,7 +155,7 @@ To uninstall the context menu:
 powershell -ExecutionPolicy Bypass -File windows\context-menu-uninstall.ps1
 ```
 
-Both scripts require admin privileges; they'll self-elevate if needed and read your configured extensions from `config\settings.toml` (or use defaults: `.mp4`, `.mkv`).
+**Important:** Flask must be running before you use the context menu item. The install script requires admin privileges and will self-elevate if needed.
 
 ### What happens to existing sidecars during a scan
 
