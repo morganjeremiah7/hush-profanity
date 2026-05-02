@@ -87,6 +87,22 @@ This opens the web UI at `http://127.0.0.1:8765/`. Click the **⚙ Settings** li
 
 You can also edit `config\settings.toml` by hand if you'd rather — the example template at `config\settings.example.toml` is the full reference and explains every key inline.
 
+### Add to Start Menu (optional)
+
+To launch hush-profanity from the Windows Start Menu:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\add-to-start-menu.ps1
+```
+
+This creates a shortcut in your Start Menu. Now you can press the Windows key and type "hush-profanity" to launch it anytime.
+
+To remove it later:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File windows\remove-from-start-menu.ps1
+```
+
 ## Usage
 
 ### Auto-scan (mute swearing + generate clean subtitles)
