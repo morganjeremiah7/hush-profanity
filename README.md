@@ -140,21 +140,18 @@ Instead of opening `manual-skip.bat` every time, you can register a right-click 
 **Installation (one-time setup):**
 
 1. Navigate to the `windows\` folder
-2. Right-click **`install.reg`** → **Merge** → **Yes**
+2. Right-click **`uninstall.reg`** → **Merge** → **Yes** (if you installed an older version)
+3. Right-click **`install.reg`** → **Merge** → **Yes**
 
-That's it! The context menu is now registered.
+Done! The context menu is now registered.
 
 **Usage:**
 
-1. Start Flask: `windows\manual-skip.bat`
-2. Right-click **any file** → **"Edit with hush-profanity"**
-3. Your default browser opens to the editor with that file loaded
+Just right-click **any file** → **"Edit with hush-profanity"**. The editor opens with that file loaded. Flask auto-starts if it's not already running.
 
 **To uninstall:**
 
 Right-click **`uninstall.reg`** → **Merge** → **Yes**
-
-**Important:** Flask must be running (`windows\manual-skip.bat`) before you use the context menu item. If it's not running, you'll get a "can't reach this site" error—just start Flask and try again.
 
 ### What happens to existing sidecars during a scan
 
