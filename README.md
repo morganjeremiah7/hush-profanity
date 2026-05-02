@@ -135,27 +135,26 @@ Or use the on-screen transport buttons: `⏪30s ⏪10s «5s ▶/⏸ 5s» 10s⏩ 
 
 ### Context menu (Windows)
 
-Instead of opening `manual-skip.bat` every time, you can register a right-click context menu item that launches the editor directly on any file:
+Instead of opening `manual-skip.bat` every time, you can register a right-click context menu item that launches the editor directly on any file.
 
-```cmd
-powershell -ExecutionPolicy Bypass -File windows\context-menu-install.ps1
-```
+**Installation (one-time setup):**
 
-After installation, start Flask first:
+1. Navigate to the `windows\` folder
+2. Right-click **`install.reg`** → **Merge** → **Yes**
 
-```cmd
-windows\manual-skip.bat
-```
+That's it! The context menu is now registered.
 
-Then right-click **any file** and select **"Edit with hush-profanity"**. Your default browser opens to the editor with that file loaded.
+**Usage:**
 
-To uninstall the context menu:
+1. Start Flask: `windows\manual-skip.bat`
+2. Right-click **any file** → **"Edit with hush-profanity"**
+3. Your default browser opens to the editor with that file loaded
 
-```cmd
-powershell -ExecutionPolicy Bypass -File windows\context-menu-uninstall.ps1
-```
+**To uninstall:**
 
-**Important:** Flask must be running before you use the context menu item. The install script requires admin privileges and will self-elevate if needed.
+Right-click **`uninstall.reg`** → **Merge** → **Yes**
+
+**Important:** Flask must be running (`windows\manual-skip.bat`) before you use the context menu item. If it's not running, you'll get a "can't reach this site" error—just start Flask and try again.
 
 ### What happens to existing sidecars during a scan
 
