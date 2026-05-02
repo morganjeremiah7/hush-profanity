@@ -1,22 +1,21 @@
 @echo off
-REM Simple batch wrapper to open a file in hush-profanity's manual editor
-REM Usage: open-in-editor.bat "C:\path\to\video.mp4"
+REM Context menu launcher for hush-profanity editor
+REM This batch file assumes Flask is already running on http://127.0.0.1:8765
+REM If Flask is not running, you'll get a "site can't be reached" error - just start it first
 
 setlocal enabledelayedexpansion
 
-if "%~1"=="" (
-    echo Usage: open-in-editor.bat "filepath"
-    exit /b 1
-)
+REM Get the file path from the first argument
+if "%~1"=="" exit /b 1
 
-REM Get the full path of this script directory
-set SCRIPT_DIR=%~dp0
-
-REM Build the URL with the file path (basic URL encoding for spaces)
 set FILE_PATH=%~1
+
+REM Build the URL - spaces in paths are OK, browser will handle them
 set URL=http://127.0.0.1:8765/watch?path=!FILE_PATH!
 
-REM Try to open the URL in the default browser
-start !URL!
+REM Launch browser asynchronously (returns immediately, never blocks Explorer)
+REM The key is using 'start ""' which creates a detached process
+start "" !URL!
 
+REM Exit immediately - this lets Explorer know the context menu handler is done
 exit /b 0
