@@ -3,12 +3,8 @@
 .SYNOPSIS
 Install Windows context menu integration for hush-profanity.
 
-Adds "Edit with hush-profanity" right-click option to all supported video files.
+Adds "Edit with hush-profanity" right-click option to all files.
 Prompts for admin elevation if not already running with admin privileges.
-
-.DESCRIPTION
-Reads the configured video extensions from config/settings.toml (or uses defaults: .mp4, .mkv)
-and registers a context menu handler in HKEY_CLASSES_ROOT for each extension.
 
 .EXAMPLE
 powershell -ExecutionPolicy Bypass -File windows\context-menu-install.ps1
@@ -24,33 +20,10 @@ if (-not $isAdmin) {
     exit
 }
 
-# Find the script directory and settings.toml
+# Find the script directory (where this script is located)
 $scriptDir = Split-Path $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path $scriptDir
-$settingsPath = Join-Path $projectRoot "config\settings.toml"
-$settingsExamplePath = Join-Path $projectRoot "config\settings.example.toml"
-
-# Parse settings.toml to find configured extensions
-$extensions = @(".mp4", ".mkv")
-
-if (Test-Path $settingsPath) {
-    try {
-        $content = Get-Content $settingsPath -Raw
-        if ($content -match 'extensions\s*=\s*\[(.*?)\]') {
-            $extStr = $matches[1]
-            $extStr = $extStr -replace '"', '' -replace "'", ''
-            $extensions = ($extStr -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-        }
-    } catch {
-        Write-Host "Note: Could not parse settings.toml, using defaults (.mp4, .mkv)" -ForegroundColor Gray
-    }
-} elseif (Test-Path $settingsExamplePath) {
-    Write-Host "Note: No settings.toml found, using defaults (.mp4, .mkv)" -ForegroundColor Gray
-}
-
-Write-Host "Installing context menu for extensions: $($extensions -join ', ')" -ForegroundColor Cyan
-
 $helperScript = Join-Path $scriptDir "edit-with-hush.ps1"
+
 if (-not (Test-Path $helperScript)) {
     Write-Error "Helper script not found: $helperScript"
     exit 1
@@ -59,10 +32,10 @@ if (-not (Test-Path $helperScript)) {
 $helperScript = (Resolve-Path $helperScript).Path
 $menuName = "Edit with hush-profanity"
 
-$regBase = "HKLM:\Software\Classes"
+Write-Host "Installing hush-profanity context menu..." -ForegroundColor Cyan
+Write-Host "Helper script: $helperScript" -ForegroundColor Gray
 
-# Register for all files (wildcard) instead of per-extension
-# This shows up more reliably in Windows 11's context menu
+$regBase = "HKLM:\Software\Classes"
 $classPath = "$regBase\*"
 $shellPath = "$classPath\shell\$menuName\command"
 
@@ -75,18 +48,17 @@ try {
     $command = '"' + $psPath + '" -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
     Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
 
-    # Also set display name
+    # Set display name
     Set-ItemProperty -Path "$classPath\shell\$menuName" -Name "(Default)" -Value "Edit with &hush-profanity" -ErrorAction Stop
 
     Write-Host "OK: Registered context menu for all file types" -ForegroundColor Green
-    Write-Host "Helper script path: $helperScript" -ForegroundColor Cyan
 } catch {
     Write-Host "ERROR: Failed to register context menu : $_" -ForegroundColor Red
+    exit 1
 }
 
 Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
-Write-Host "Right-click any video file to see 'Edit with hush-profanity'" -ForegroundColor Cyan
+Write-Host "Right-click any file to see 'Edit with hush-profanity'" -ForegroundColor Cyan
 Write-Host ""
-$msg = "To uninstall, run: powershell -ExecutionPolicy Bypass -File context-menu-uninstall.ps1"
-Write-Host $msg -ForegroundColor Gray
+Write-Host "To uninstall, run: powershell -ExecutionPolicy Bypass -File context-menu-uninstall.ps1" -ForegroundColor Gray
