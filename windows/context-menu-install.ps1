@@ -68,7 +68,7 @@ foreach ($ext in $extensions) {
 
     try {
         $classPath = Join-Path $regBase $ext
-        $shellPath = Join-Path $classPath "shell" $menuName "command"
+        $shellPath = "$classPath\shell\$menuName\command"
 
         if (-not (Test-Path $shellPath)) {
             New-Item -Path $shellPath -Force -ErrorAction Stop | Out-Null
