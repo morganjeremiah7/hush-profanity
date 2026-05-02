@@ -40,6 +40,14 @@ _ENTRY_RE = re.compile(r"^\s*([\d.]+)\s+([\d.]+)\s+(\d)\s*$")
 
 _ACTION_LABEL = {0: "Skipped", 1: "Muted", 2: "Scene", 3: "Commercial"}
 
+# Detects a comment that already begins with one of our auto-generated labels
+# AND a timestamp range — used to skip prepending a second label on round-trips
+# (which would produce 'Muted: ts1 — Muted: ts2 …' if the entry got merged
+# or otherwise its start/end no longer matches the original timestamps).
+_AUTO_LABEL_PREFIX_RE = re.compile(
+    r"^(?:Muted|Skipped|Scene|Commercial|Action-\d+):\s+\d{1,2}:\d{2}:\d{2}\s+to\s+\d{1,2}:\d{2}:\d{2}"
+)
+
 
 @dataclass
 class EdlEntry:
@@ -52,16 +60,20 @@ class EdlEntry:
         """Render this entry as one or more lines of EDL text.
 
         Always emits a `##` comment line above the entry with a human-readable
-        timestamp range. If `self.comment` already contains the timestamp range
-        (e.g. an auto-mute comment built by entries_from_profanity_hits, which
-        looks like 'Muted: 0:01:23 to 0:01:24 <context words>'), it's used as-is.
-        Otherwise we generate a label like 'Skipped: 0:01:40 to 0:02:05' and
-        append the user's note (if any) as a free-text suffix.
+        timestamp range. If `self.comment` already begins with one of our
+        auto-generated labels + a timestamp range (e.g. round-tripped from a
+        previous write, or an auto-mute comment built by
+        entries_from_profanity_hits), it's used verbatim — we don't prepend a
+        second label even when the labeled timestamps inside the comment
+        differ from the entry's current start/end (which can happen after
+        merge_adjacent combines two hits into one wider entry). Otherwise we
+        generate `<label>: <ts>` and append the user's note (if any) as a
+        free-text suffix.
         """
         ts = f"{_hms(self.start)} to {_hms(self.end)}"
         label = _ACTION_LABEL.get(self.action, f"Action-{self.action}")
         existing = (self.comment or "").strip()
-        if ts in existing:
+        if _AUTO_LABEL_PREFIX_RE.match(existing):
             comment_text = existing
         elif existing:
             comment_text = f"{label}: {ts} — {existing}"
