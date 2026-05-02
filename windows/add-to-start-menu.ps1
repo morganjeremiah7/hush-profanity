@@ -31,12 +31,12 @@ try {
     # Save the shortcut
     $shortcut.Save()
 
-    Write-Host "✓ Shortcut created: $shortcutPath" -ForegroundColor Green
+    Write-Host "OK: Shortcut created at: $shortcutPath" -ForegroundColor Green
     Write-Host ""
     Write-Host "You can now find 'hush-profanity' in your Start Menu!" -ForegroundColor Green
     Write-Host "Or press the Windows key and type: hush-profanity" -ForegroundColor Cyan
 
 } catch {
-    Write-Host "✗ Error creating shortcut: $_" -ForegroundColor Red
+    Write-Host "ERROR: Failed to create shortcut: $_" -ForegroundColor Red
     exit 1
 }

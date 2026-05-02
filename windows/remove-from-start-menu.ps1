@@ -17,12 +17,12 @@ try {
 
     if (Test-Path $shortcutPath) {
         Remove-Item $shortcutPath -Force
-        Write-Host "✓ Shortcut removed" -ForegroundColor Green
+        Write-Host "OK: Shortcut removed" -ForegroundColor Green
     } else {
         Write-Host "Shortcut not found (already removed)" -ForegroundColor Gray
     }
 
 } catch {
-    Write-Host "✗ Error removing shortcut: $_" -ForegroundColor Red
+    Write-Host "ERROR: Failed to remove shortcut: $_" -ForegroundColor Red
     exit 1
 }

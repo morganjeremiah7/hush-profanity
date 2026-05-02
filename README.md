@@ -250,7 +250,7 @@ src/hush_profanity/
         server.py             Flask server with byte-range streaming
         templates/            index.html, watch.html
         static/               style.css, index.js, watch.js
-windows/                      install.bat, scan.bat, manual-skip.bat, clean.bat, context-menu-install.ps1, context-menu-uninstall.ps1, edit-with-hush.ps1
+windows/                      install.bat, scan.bat, manual-skip.bat, clean.bat, install.reg, uninstall.reg, open-in-editor.bat, add-to-start-menu.ps1, remove-from-start-menu.ps1
 ```
 
 ## Troubleshooting
