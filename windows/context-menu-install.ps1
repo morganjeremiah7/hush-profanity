@@ -20,27 +20,26 @@ if (-not $isAdmin) {
     exit
 }
 
-# Find the script directory and helper script
+# Find the script directory
 $scriptDir = Split-Path $MyInvocation.MyCommand.Path
-$helperScript = Join-Path $scriptDir "edit-with-hush.ps1"
+$batchFile = Join-Path $scriptDir "open-in-editor.bat"
 
-if (-not (Test-Path $helperScript)) {
-    Write-Error "Helper script not found: $helperScript"
+if (-not (Test-Path $batchFile)) {
+    Write-Error "Batch file not found: $batchFile"
     exit 1
 }
 
-$helperScript = (Resolve-Path $helperScript).Path
+$batchFile = (Resolve-Path $batchFile).Path
 
 Write-Host "Installing hush-profanity context menu..." -ForegroundColor Cyan
-Write-Host "Helper script: $helperScript" -ForegroundColor Gray
+Write-Host "Batch file: $batchFile" -ForegroundColor Gray
 
 $regBasePath = "HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell"
 $verbName = "Edit with hush-profanity"
 $verbPath = "$regBasePath\$verbName"
 $commandPath = "$verbPath\command"
 
-$psPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-$command = "$psPath`" -NoProfile -ExecutionPolicy Bypass -File `"$helperScript`" `"%1`""
+$command = "`"$batchFile`" `"%1`""
 
 try {
     # Create the verb registry key with display name
@@ -49,7 +48,7 @@ try {
         throw "Failed to create verb key"
     }
 
-    # Create the command registry key with the PowerShell command
+    # Create the command registry key with the batch file command
     & reg add $commandPath /ve /d $command /f 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create command key"
@@ -64,5 +63,7 @@ try {
 Write-Host ""
 Write-Host "Installation complete!" -ForegroundColor Green
 Write-Host "Right-click any file to see 'Edit with hush-profanity'" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Note: Flask must be running. Start it with: windows\manual-skip.bat" -ForegroundColor Yellow
 Write-Host ""
 Write-Host "To uninstall, run: powershell -ExecutionPolicy Bypass -File context-menu-uninstall.ps1" -ForegroundColor Gray
