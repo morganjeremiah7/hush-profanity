@@ -4,4 +4,4 @@ Windows Registry Editor Version 5.00
 @="Edit with &hush-profanity"
 
 [HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\Edit with hush-profanity\command]
-@="cmd.exe /c start \"\" \"C:\\Users\\morga\\Projects\\Swearing Remover\\windows\\open-in-editor.bat\" \"%1\""
+@="cmd.exe /c \"C:\\Users\\morga\\Projects\\Swearing Remover\\windows\\open-in-editor.bat\" \"%1\""
