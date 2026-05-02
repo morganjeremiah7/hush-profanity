@@ -20,7 +20,7 @@ if (-not $isAdmin) {
     exit
 }
 
-# Find the script directory (where this script is located)
+# Find the script directory and helper script
 $scriptDir = Split-Path $MyInvocation.MyCommand.Path
 $helperScript = Join-Path $scriptDir "edit-with-hush.ps1"
 
@@ -30,26 +30,30 @@ if (-not (Test-Path $helperScript)) {
 }
 
 $helperScript = (Resolve-Path $helperScript).Path
-$menuName = "Edit with hush-profanity"
 
 Write-Host "Installing hush-profanity context menu..." -ForegroundColor Cyan
 Write-Host "Helper script: $helperScript" -ForegroundColor Gray
 
-$regBase = "HKLM:\Software\Classes"
-$classPath = "$regBase\*"
-$shellPath = "$classPath\shell\$menuName\command"
+$regBasePath = "HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell"
+$verbName = "Edit with hush-profanity"
+$verbPath = "$regBasePath\$verbName"
+$commandPath = "$verbPath\command"
+
+$psPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
+$command = "$psPath`" -NoProfile -ExecutionPolicy Bypass -File `"$helperScript`" `"%1`""
 
 try {
-    if (-not (Test-Path $shellPath)) {
-        New-Item -Path $shellPath -Force -ErrorAction Stop | Out-Null
+    # Create the verb registry key with display name
+    & reg add $verbPath /ve /d "Edit with &hush-profanity" /f 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create verb key"
     }
 
-    $psPath = "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"
-    $command = '"' + $psPath + '" -NoProfile -ExecutionPolicy Bypass -File "' + $helperScript + '" "%1"'
-    Set-ItemProperty -Path $shellPath -Name "(Default)" -Value $command -ErrorAction Stop
-
-    # Set display name
-    Set-ItemProperty -Path "$classPath\shell\$menuName" -Name "(Default)" -Value "Edit with &hush-profanity" -ErrorAction Stop
+    # Create the command registry key with the PowerShell command
+    & reg add $commandPath /ve /d $command /f 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to create command key"
+    }
 
     Write-Host "OK: Registered context menu for all file types" -ForegroundColor Green
 } catch {

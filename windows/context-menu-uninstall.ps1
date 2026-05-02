@@ -22,20 +22,17 @@ if (-not $isAdmin) {
 
 Write-Host "Removing hush-profanity context menu..." -ForegroundColor Cyan
 
-$regBase = "HKLM:\Software\Classes"
-$menuName = "Edit with hush-profanity"
+$regPath = "HKEY_LOCAL_MACHINE\SOFTWARE\Classes\*\shell\Edit with hush-profanity"
 
 try {
-    $shellPath = "$regBase\*\shell\$menuName"
-
-    if (Test-Path $shellPath) {
-        Remove-Item -Path $shellPath -Recurse -Force -ErrorAction Stop
+    & reg delete $regPath /f 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) {
         Write-Host "OK: Removed context menu" -ForegroundColor Green
     } else {
         Write-Host "Context menu not registered (nothing to remove)" -ForegroundColor Gray
     }
 } catch {
-    Write-Host "ERROR: Failed to remove context menu : $_" -ForegroundColor Red
+    Write-Host "ERROR: $_" -ForegroundColor Red
 }
 
 Write-Host ""
