@@ -11,13 +11,14 @@ if errorlevel 1 (
 )
 
 echo.
-echo Testing with a dummy file path...
-set TEST_FILE=C:\test.mp4
-set URL=http://127.0.0.1:8765/watch?path=!TEST_FILE!
-echo Would open URL: !URL!
+echo Testing URL...
+set "TEST_FILE=C:\test.mp4"
+echo Would open: http://127.0.0.1:8765/watch?path=%TEST_FILE%
 
 echo.
 echo Opening URL in default browser...
-start "" !URL!
+start "" "http://127.0.0.1:8765/watch?path=%TEST_FILE%"
 
+echo.
+echo Done! Browser should have opened (or shown error if Flask isn't running).
 pause
